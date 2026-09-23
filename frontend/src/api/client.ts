@@ -1,0 +1,169 @@
+import type { DashboardStats, SecurityEvent, IPInfo, BlockInfo, SystemMetric, PortStat, Settings } from '../types';
+
+const BASE_URL = '';
+
+export async function getStats(): Promise<DashboardStats> {
+  const res = await fetch(`${BASE_URL}/api/v1/stats`);
+  if (!res.ok) throw new Error('Failed to fetch stats');
+  return res.json();
+}
+
+export async function getEvents(params: {
+  limit?: number;
+  offset?: number;
+  monitor?: string;
+  severity?: string;
+  action?: string;
+  ip?: string;
+  search?: string;
+}): Promise<{ events: SecurityEvent[]; total: number; limit: number; offset: number }> {
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', params.limit.toString());
+  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.monitor) query.set('monitor', params.monitor);
+  if (params.severity) query.set('severity', params.severity);
+  if (params.action) query.set('action', params.action);
+  if (params.ip) query.set('ip', params.ip);
+  if (params.search) query.set('search', params.search);
+
+  const res = await fetch(`${BASE_URL}/api/v1/events?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch events');
+  return res.json();
+}
+
+export async function getIPs(params: {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}): Promise<{ ips: IPInfo[]; total: number; limit: number; offset: number }> {
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', params.limit.toString());
+  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.search) query.set('search', params.search);
+
+  const res = await fetch(`${BASE_URL}/api/v1/ips?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch IPs');
+  return res.json();
+}
+
+export async function getIPDetails(ip: string): Promise<{ ip: IPInfo; events: SecurityEvent[] }> {
+  const res = await fetch(`${BASE_URL}/api/v1/ips/${encodeURIComponent(ip)}`);
+  if (!res.ok) throw new Error('Failed to fetch IP details');
+  return res.json();
+}
+
+export async function getBlocks(params: {
+  limit?: number;
+  offset?: number;
+  status?: string;
+}): Promise<{ blocks: BlockInfo[]; total: number; limit: number; offset: number }> {
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', params.limit.toString());
+  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.status) query.set('status', params.status);
+
+  const res = await fetch(`${BASE_URL}/api/v1/blocks?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch blocks');
+  return res.json();
+}
+
+export async function getPorts(): Promise<PortStat[]> {
+  const res = await fetch(`${BASE_URL}/api/v1/ports`);
+  if (!res.ok) throw new Error('Failed to fetch ports');
+  return res.json();
+}
+
+export async function getSSH(params: {
+  limit?: number;
+  offset?: number;
+}): Promise<{ events: SecurityEvent[]; total: number }> {
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', params.limit.toString());
+  if (params.offset) query.set('offset', params.offset.toString());
+
+  const res = await fetch(`${BASE_URL}/api/v1/ssh?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch SSH events');
+  return res.json();
+}
+
+export async function getSystemMetrics(): Promise<SystemMetric[]> {
+  const res = await fetch(`${BASE_URL}/api/v1/metrics/system`);
+  if (!res.ok) throw new Error('Failed to fetch system metrics');
+  return res.json();
+}
+
+export async function getSettings(): Promise<Settings> {
+  const res = await fetch(`${BASE_URL}/api/v1/settings`);
+  if (!res.ok) throw new Error('Failed to fetch settings');
+  return res.json();
+}
+
+export async function updateSettings(data: {
+  demo_mode?: boolean;
+  retention_days?: number;
+}): Promise<Settings> {
+  const res = await fetch(`${BASE_URL}/api/v1/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update settings');
+  return res.json();
+}
+
+export function subscribeRealtime(
+  onEvent: (event: SecurityEvent) => void,
+  onConnected?: (connected: boolean) => void
+): () => void {
+  // Use Server-Sent Events (SSE) for reliable native reconnection
+  const eventSource = new EventSource(`${BASE_URL}/api/v1/events/stream`);
+
+  eventSource.onopen = () => {
+    onConnected?.(true);
+  };
+
+  eventSource.onmessage = (msg) => {
+    try {
+      const data = JSON.parse(msg.data);
+      if (data.type === 'security_event' && data.event) {
+        onEvent(data.event);
+      }
+    } catch {
+      // ignore parse error
+    }
+  };
+
+  eventSource.onerror = () => {
+    onConnected?.(false);
+  };
+
+  return () => {
+    eventSource.close();
+  };
+}
+
+export interface GeoIPStatus {
+  enabled: boolean;
+  active: boolean;
+  path: string;
+  exists: boolean;
+  size_mb: string;
+  updated_at: string;
+}
+
+export async function getGeoIPStatus(): Promise<GeoIPStatus> {
+  const res = await fetch(`${BASE_URL}/api/v1/geoip/status`);
+  if (!res.ok) throw new Error('Failed to fetch GeoIP status');
+  return res.json();
+}
+
+export async function updateGeoIP(): Promise<{ status: string; message: string; size_mb: string; path: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/geoip/update`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Не удалось обновить базу данных GeoIP');
+  }
+  return res.json();
+}

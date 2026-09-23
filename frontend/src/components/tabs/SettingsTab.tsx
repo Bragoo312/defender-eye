@@ -1,0 +1,428 @@
+import { useState, useEffect } from 'react';
+import type { Settings } from '../../types';
+import { getSettings, updateSettings, getGeoIPStatus, updateGeoIP, type GeoIPStatus } from '../../api/client';
+import {
+  Settings as SettingsIcon,
+  Key,
+  Copy,
+  Check,
+  RotateCw,
+  Terminal,
+  Database,
+  Save,
+  Globe,
+  Download,
+  AlertCircle,
+} from 'lucide-react';
+
+interface SettingsTabProps {
+  demoMode: boolean;
+  onToggleDemoMode: () => void;
+}
+
+export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemoMode }) => {
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [copiedTunnel, setCopiedTunnel] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
+  const [geoStatus, setGeoStatus] = useState<GeoIPStatus | null>(null);
+  const [updatingGeo, setUpdatingGeo] = useState(false);
+  const [geoMsg, setGeoMsg] = useState<string | null>(null);
+  const [geoErr, setGeoErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSettings()
+      .then((data) => {
+        setSettings(data);
+        if (data.retention_days) setRetentionDays(data.retention_days);
+      })
+      .catch((err) => console.error(err));
+
+    getGeoIPStatus()
+      .then((data) => setGeoStatus(data))
+      .catch((err) => console.error('Failed to get GeoIP status:', err));
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    try {
+      const updated = await updateSettings({
+        retention_days: retentionDays,
+        demo_mode: demoMode,
+      });
+      setSettings(updated);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyText = (text: string, setter: (val: boolean) => void) => {
+    navigator.clipboard.writeText(text);
+    setter(true);
+    setTimeout(() => setter(false), 2000);
+  };
+
+  const handleUpdateGeoIP = async () => {
+    setUpdatingGeo(true);
+    setGeoMsg(null);
+    setGeoErr(null);
+    try {
+      const res = await updateGeoIP();
+      setGeoMsg(`База успешно обновлена! (${res.size_mb || 'MMDB'})`);
+      const newStatus = await getGeoIPStatus();
+      setGeoStatus(newStatus);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Ошибка загрузки базы данных GeoIP';
+      setGeoErr(message);
+    } finally {
+      setUpdatingGeo(false);
+    }
+  };
+
+  const openDefenderSampleConfig = `# Конфигурация агента Open Defender (/etc/open-defender/config.yaml)
+# Этот файл связывает Open Defender с вашей панелью Defender Eye через E2EE WebSocket
+
+exporter:
+  enabled: true
+  endpoint_address: "ws://127.0.0.1:8080/ws/agent" # или /ws/collector
+  user_id: "admin"
+  config_id: "server-01"
+  endpoint_rsa_public_key: "${settings?.open_defender_key || 'DEFENDER_EYE_RSA_PUBLIC_KEY'}"
+
+blocked_ips_database: "/var/open-defender/blocked.db"
+ip_whitelist: []
+
+# Монитор SSH (защита от перебора паролей)
+ssh_monitor:
+  mode: "blocker"            # варианты: disabled, logger, blocker
+  engine: "syslog"           # syslog, journal или docker
+  log_path: "/var/log/auth.log"
+  unit_name: "sshd"
+  tries: 5
+  window_seconds: 300
+  ban_seconds: 900
+  pattern: 'Failed password for (?:invalid user )?\\S+ from (?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3})'
+
+# Монитор веб-сканирования (поиск скрытых путей/админок)
+web_recon_monitor:
+  mode: "disabled"
+  engine: "syslog"
+  log_path: "/var/log/nginx/access.log"
+  unit_name: "nginx"
+  tries: 10
+  window_seconds: 60
+  ban_seconds: 600
+  pattern: '(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}) - - \\[.*?\\] "(?:GET|POST|HEAD) \\S+ HTTP/\\d\\.\\d" 40[34]'
+
+# Монитор перебора паролей веб-форм
+web_brute_monitor:
+  mode: "disabled"
+  engine: "syslog"
+  log_path: "/var/log/nginx/access.log"
+  unit_name: "nginx"
+  tries: 5
+  window_seconds: 120
+  ban_seconds: 900
+  pattern: '(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}) - - \\[.*?\\] "POST (?:/login|/wp-login\\.php|/admin) HTTP/\\d\\.\\d" 40[13]'
+
+# Монитор баз данных (PostgreSQL / MySQL)
+database_monitor:
+  mode: "disabled"
+  engine: "journal"
+  log_path: "/var/log/postgresql/postgresql-16-main.log"
+  unit_name: "postgresql"
+  tries: 5
+  window_seconds: 300
+  ban_seconds: 900
+  pattern: 'host=(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}).*FATAL:\\s+password authentication failed for user'
+
+# Монитор ресурсов сервера (CPU, RAM, диск, трафик)
+resource_monitor:
+  enabled: false
+  cpu_usage_persentage:
+    warning: 60
+    alert: 90
+  ram_usage_persentage:
+    warning: 60
+    alert: 90
+  traffic_usage_mbs:
+    warning: 0
+    alert: 0
+  disk_usage_iops:
+    warning: 0
+    alert: 0
+  output_top_snaphot_dir: "/var/log/open-defender/"
+
+# eBPF сетевой монитор (защита от сканирования портов)
+ebpf_monitors:
+  network_antirecon:
+    mode: "disabled"
+    ports_count: 10
+    window_seconds: 300
+    ban_seconds: 900
+    whitelist_ports: [22, 80, 443]
+    blacklist_ports: []
+`;
+
+  return (
+    <div className="space-y-6 pb-12 max-w-5xl">
+      {/* Top Banner */}
+      <div className="p-4 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+            <SettingsIcon className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+              <span>Параметры Defender Eye & Интеграция E2EE</span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Управление хранением базы SQLite, ключами шифрования и подключением Open Defender
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleSaveSettings}
+          disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all disabled:opacity-50"
+        >
+          {saving ? <RotateCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <span>{saving ? 'Сохранение...' : 'Сохранить настройки'}</span>
+        </button>
+      </div>
+
+      {/* Grid Settings Panels */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Panel 1: Retention & General */}
+        <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <Database className="w-4 h-4 text-cyan-400" />
+              <span>Хранение и ротация данных (SQLite WAL)</span>
+            </span>
+          </div>
+
+          <div className="space-y-4 text-xs font-sans">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1.5">
+                Срок хранения событий (дней):
+              </label>
+              <select
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(Number(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-slate-200 text-xs font-mono focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value={7}>7 дней (минимальный размер базы ~5 МБ)</option>
+                <option value={14}>14 дней</option>
+                <option value={30}>30 дней (рекомендуется для 2 GB RAM VPS)</option>
+                <option value={60}>60 дней</option>
+                <option value={90}>90 дней (~50 МБ)</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Фоновый сборщик мусора каждые 6 часов очищает устаревшие записи, не блокируя запись.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-slate-300 font-semibold">Симулятор атак (Demo Mode):</div>
+                  <div className="text-[11px] text-slate-400">
+                    Генерирует реалистичный трафик атак для демонстрации возможностей панели
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onToggleDemoMode}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
+                    demoMode ? 'bg-cyan-500' : 'bg-slate-800'
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                      demoMode ? 'translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 space-y-1">
+              <div className="text-slate-300 font-semibold">Адрес прослушивания (Bind Address):</div>
+              <div className="font-mono text-cyan-400 p-2 bg-slate-900 rounded-lg border border-slate-800">
+                {settings?.bind_address || '127.0.0.1:8080'}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                По соображениям безопасности панель открыта только локально на хосте.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Panel 2: GeoIP Status & One-Click Update */}
+        <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-emerald-400" />
+              <span>Автономная база MaxMind GeoIP</span>
+            </span>
+            <span
+              className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                geoStatus?.active
+                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80'
+                  : 'bg-amber-950/80 text-amber-400 border-amber-800/80'
+              }`}
+            >
+              {geoStatus?.active ? 'OFFLINE MMDB АКТИВНА' : 'БАЗА НЕ УСТАНОВЛЕНА'}
+            </span>
+          </div>
+
+          <div className="space-y-4 text-xs font-sans">
+            <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Статус резолвера:</span>
+                {geoStatus?.active ? (
+                  <span className="font-mono font-bold text-emerald-400 flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" />
+                    Работает локально
+                  </span>
+                ) : (
+                  <span className="font-mono font-bold text-amber-400 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Мягкий режим (без гео)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Файл базы данных:</span>
+                <span
+                  className="font-mono text-slate-300 text-[11px] truncate max-w-[220px]"
+                  title={geoStatus?.path}
+                >
+                  {geoStatus?.path || 'geoip/GeoLite2-City.mmdb'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Размер на диске:</span>
+                <span className="font-mono text-cyan-300">
+                  {geoStatus?.exists ? geoStatus.size_mb : '0 MB (отсутствует)'}
+                </span>
+              </div>
+              {geoStatus?.updated_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Последнее изменение:</span>
+                  <span className="font-mono text-slate-400 text-[11px]">
+                    {new Date(geoStatus.updated_at).toLocaleString('ru-RU')}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {geoMsg && (
+              <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2 text-[11px]">
+                <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>{geoMsg}</span>
+              </div>
+            )}
+
+            {geoErr && (
+              <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 flex items-center gap-2 text-[11px]">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{geoErr}</span>
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={handleUpdateGeoIP}
+                disabled={updatingGeo}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.25)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {updatingGeo ? (
+                  <>
+                    <RotateCw className="w-4 h-4 animate-spin" />
+                    <span>Загрузка базы GeoIP (65 МБ, подождите)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>
+                      {geoStatus?.exists ? 'Обновить базу GeoIP сейчас' : 'Скачать базу GeoIP (в 1 клик)'}
+                    </span>
+                  </>
+                )}
+              </button>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Загружает свежую базу <code className="text-cyan-400 font-mono">GeoLite2-City.mmdb</code> (~65 МБ)
+                напрямую на сервер и мгновенно подключает её «на лету» без перезапуска сервиса.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Panel 3: Open Defender E2EE Integration & Config */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <Key className="w-4 h-4 text-cyan-400" />
+            <span>Интеграция с агентом Open Defender (E2EE WebSocket)</span>
+          </span>
+          <button
+            onClick={() => copyText(openDefenderSampleConfig, setCopiedConfig)}
+            className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-mono"
+          >
+            {copiedConfig ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedConfig ? 'Конфиг скопирован' : 'Скопировать config.yaml'}</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-300 font-sans">
+          Разместите следующую конфигурацию в конфигурационном файле вашего агента Open Defender на
+          сервере для безопасной передачи алертов по сквозному шифрованному каналу:
+        </p>
+
+        <pre className="p-3.5 bg-[#080d1a] border border-slate-800 rounded-xl text-xs font-mono text-cyan-300 overflow-x-auto leading-relaxed">
+          {openDefenderSampleConfig}
+        </pre>
+      </div>
+
+      {/* Panel 4: SSH Tunnel Access Guide */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-indigo-400" />
+            <span>Безопасный доступ через SSH-туннель (Zero Cloud Exposure)</span>
+          </span>
+          <button
+            onClick={() =>
+              copyText('ssh -L 8080:127.0.0.1:8080 user@your-server-ip', setCopiedTunnel)
+            }
+            className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-mono"
+          >
+            {copiedTunnel ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedTunnel ? 'Команда скопирована' : 'Скопировать команду'}</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-300 font-sans leading-relaxed">
+          Панель не требует открытия внешних портов в интернет. Для безопасного входа с вашего
+          локального компьютера выполните команду в терминале:
+        </p>
+
+        <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl font-mono text-xs text-indigo-300 flex items-center justify-between">
+          <span>ssh -L 8080:127.0.0.1:8080 root@your-server-ip</span>
+        </div>
+
+        <p className="text-[11px] text-slate-400 font-sans">
+          После этого откройте браузер по адресу: <code className="text-cyan-400 font-mono">http://localhost:8080</code>
+        </p>
+      </div>
+    </div>
+  );
+};

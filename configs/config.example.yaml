@@ -1,0 +1,40 @@
+# Defender Eye Configuration
+server:
+  # Listen strictly on localhost for SSH tunnel access by default
+  bind_address: "127.0.0.1:8080"
+  
+  # Path to SQLite database
+  database_path: "data/defender.db"
+  
+  # Retention policy in days for events and metrics (e.g. 7, 30, 90)
+  retention_days: 30
+  
+  # Demo mode: when true, generates realistic simulated attacks for UI preview
+  demo_mode: false
+
+# Offline GeoIP configuration (MaxMind MMDB format)
+# No external APIs are contacted. If the file is missing, IP geolocation is skipped gracefully.
+geoip:
+  enabled: true
+  mmdb_path: "geoip/GeoLite2-Country.mmdb"
+
+# Open Defender E2EE WebSocket integration
+open_defender:
+  enabled: true
+  ws_endpoint: "/ws/agent"
+  # Server RSA keys used for decrypting envelopes from Open Defender agents
+  private_key_path: "configs/server_rsa.key"
+  public_key_path: "configs/server_rsa.pub"
+  # Default ban duration in seconds to calculate expiration if agent does not specify
+  default_ban_seconds: 900
+
+# Local Ingestion API for custom scripts, syslog parsers, or collector.sh
+ingestion:
+  enabled: true
+  api_path: "/api/v1/events"
+  # Optional shared secret token. If empty, requests from 127.0.0.1 are accepted without token
+  secret_token: ""
+
+# System metrics collection interval (seconds)
+metrics:
+  collection_interval_seconds: 30
