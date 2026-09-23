@@ -16,11 +16,12 @@ type DB struct {
 }
 
 type EventFilters struct {
-	Monitor  string
-	Severity string
-	Action   string
-	IP       string
-	Search   string
+	Monitor     string
+	Severity    string
+	Action      string
+	IP          string
+	CountryCode string
+	Search      string
 }
 
 func Open(dbPath string) (*DB, error) {
@@ -294,8 +295,8 @@ func (db *DB) GetEvents(limit, offset int, filters EventFilters) ([]model.Securi
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 1000 {
+		limit = 1000
 	}
 
 	var where []string
@@ -317,10 +318,14 @@ func (db *DB) GetEvents(limit, offset int, filters EventFilters) ([]model.Securi
 		where = append(where, "source_ip = ?")
 		args = append(args, filters.IP)
 	}
+	if filters.CountryCode != "" {
+		where = append(where, "country_code = ?")
+		args = append(args, filters.CountryCode)
+	}
 	if filters.Search != "" {
-		where = append(where, "(message LIKE ? OR source_ip LIKE ? OR country_name LIKE ?)")
+		where = append(where, "(message LIKE ? OR source_ip LIKE ? OR country_name LIKE ? OR country_code LIKE ?)")
 		searchTerm := "%" + filters.Search + "%"
-		args = append(args, searchTerm, searchTerm, searchTerm)
+		args = append(args, searchTerm, searchTerm, searchTerm, searchTerm)
 	}
 
 	whereClause := ""

@@ -8,6 +8,8 @@ interface ThreatMapProps {
   height?: number | string;
   onSelectIp?: (ip: string) => void;
   className?: string;
+  selectedCountry?: string | null;
+  onResetCountryFilter?: () => void;
 }
 
 // Simplified continent & island landmass points [lat, lon] for 100% offline vector map
@@ -136,6 +138,8 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
   height = 450,
   onSelectIp,
   className = '',
+  selectedCountry = null,
+  onResetCountryFilter,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -210,14 +214,14 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       }
     });
 
-    return Array.from(nodeMap.values()).slice(0, 40);
+    return Array.from(nodeMap.values()).slice(0, 300);
   }, [events]);
 
   // Animated laser arcs
   const arcsRef = useRef<AttackArc[]>([]);
 
   useEffect(() => {
-    const activeNodes = attackNodes.slice(0, 15);
+    const activeNodes = attackNodes.slice(0, 40);
     arcsRef.current = activeNodes.map((n) => {
       let color = '#38bdf8'; // sky
       if (n.severity === 'critical') color = '#f43f5e'; // rose
@@ -559,7 +563,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       />
 
       {/* Top Banner Overlay */}
-      <div className="absolute top-3 left-4 pointer-events-none flex items-center gap-2">
+      <div className="absolute top-3 left-4 pointer-events-auto flex items-center gap-2 flex-wrap z-20">
         <span className="relative flex h-2 w-2">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
@@ -567,6 +571,21 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
         <span className="text-[11px] font-mono uppercase tracking-wider text-cyan-400 bg-cyan-950/80 border border-cyan-800/80 px-2.5 py-1 rounded-lg backdrop-blur">
           РАДАР АТАК • {attackNodes.length} ИСТОЧНИКОВ • МАСШТАБ {Math.round(zoom * 100)}%
         </span>
+
+        {selectedCountry && (
+          <span className="text-[11px] font-mono text-amber-300 bg-amber-950/90 border border-amber-800 px-2.5 py-1 rounded-lg backdrop-blur flex items-center gap-1.5 font-bold shadow-lg">
+            <span>Фильтр: {selectedCountry}</span>
+            {onResetCountryFilter && (
+              <button
+                onClick={onResetCountryFilter}
+                className="hover:text-white bg-amber-900/80 hover:bg-rose-900 rounded px-1.5 py-0.5 text-[10px] uppercase font-bold transition-colors cursor-pointer"
+                title="Сбросить фильтр по стране"
+              >
+                ✕ Сбросить
+              </button>
+            )}
+          </span>
+        )}
       </div>
 
       {/* Zoom and Pan Interactive Controls Bar */}

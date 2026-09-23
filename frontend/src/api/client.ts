@@ -15,6 +15,7 @@ export async function getEvents(params: {
   severity?: string;
   action?: string;
   ip?: string;
+  country?: string;
   search?: string;
 }): Promise<{ events: SecurityEvent[]; total: number; limit: number; offset: number }> {
   const query = new URLSearchParams();
@@ -24,6 +25,7 @@ export async function getEvents(params: {
   if (params.severity) query.set('severity', params.severity);
   if (params.action) query.set('action', params.action);
   if (params.ip) query.set('ip', params.ip);
+  if (params.country) query.set('country', params.country);
   if (params.search) query.set('search', params.search);
 
   const res = await fetch(`${BASE_URL}/api/v1/events?${query.toString()}`);

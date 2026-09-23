@@ -211,11 +211,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(query.Get("offset"))
 
 	filters := database.EventFilters{
-		Monitor:  query.Get("monitor"),
-		Severity: query.Get("severity"),
-		Action:   query.Get("action"),
-		IP:       query.Get("ip"),
-		Search:   query.Get("search"),
+		Monitor:     query.Get("monitor"),
+		Severity:    query.Get("severity"),
+		Action:      query.Get("action"),
+		IP:          query.Get("ip"),
+		CountryCode: query.Get("country"),
+		Search:      query.Get("search"),
 	}
 
 	events, total, err := s.db.GetEvents(limit, offset, filters)

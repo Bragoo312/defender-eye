@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ThreatMap } from '../ThreatMap';
 import type { SecurityEvent, CountryStat } from '../../types';
-import { Globe, Radio, Crosshair } from 'lucide-react';
+import { getEvents } from '../../api/client';
+import { Globe, Radio, Crosshair, Layers, Zap, Loader2 } from 'lucide-react';
 
 interface ThreatMapTabProps {
   events: SecurityEvent[];
@@ -15,9 +16,41 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
   onSelectIp,
 }) => {
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'all' | 'live'>('all');
+  const [historicalEvents, setHistoricalEvents] = useState<SecurityEvent[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
-  const filteredEvents = selectedCountry
-    ? events.filter((e) => e.country_code === selectedCountry)
+  // Fetch events from database when selected country or viewMode changes
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (viewMode === 'all' || selectedCountry) {
+      setLoadingHistory(true);
+      getEvents({
+        limit: 500,
+        country: selectedCountry || undefined,
+      })
+        .then((res) => {
+          if (!isCancelled) setHistoricalEvents(res.events);
+        })
+        .catch((err) => console.error('[ThreatMapTab] Error fetching history:', err))
+        .finally(() => {
+          if (!isCancelled) setLoadingHistory(false);
+        });
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedCountry, viewMode]);
+
+  // Determine events to render on map canvas
+  const eventsToDisplay = selectedCountry
+    ? historicalEvents.filter((e) => e.country_code === selectedCountry)
+    : viewMode === 'all'
+    ? historicalEvents.length > 0
+      ? historicalEvents
+      : events
     : events;
 
   return (
@@ -41,23 +74,61 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 font-mono text-xs">
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-            <span className="text-slate-400">Страны-источники:</span>
-            <span className="text-cyan-400 font-bold">{topCountries.length}</span>
+        {/* View Mode Toggle & HUD Stats */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+            <button
+              onClick={() => {
+                setSelectedCountry(null);
+                setViewMode('all');
+              }}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
+                viewMode === 'all' && !selectedCountry
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Все векторы из базы ({eventsToDisplay.length})</span>
+            </button>
+            <button
+              onClick={() => {
+                setSelectedCountry(null);
+                setViewMode('live');
+              }}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
+                viewMode === 'live' && !selectedCountry
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-rose-400" />
+              <span>Живой поток ({events.length})</span>
+            </button>
           </div>
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-            <span className="text-slate-400">Векторов в потоке:</span>
-            <span className="text-rose-400 font-bold">{events.length}</span>
+
+          <div className="flex items-center gap-3 font-mono text-xs">
+            <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
+              <span className="text-slate-400">Страны-источники:</span>
+              <span className="text-cyan-400 font-bold">{topCountries.length}</span>
+            </div>
+            {loadingHistory && (
+              <div className="px-2.5 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-800 text-cyan-400 flex items-center gap-1.5 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Загрузка...</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main Full-Size Map Canvas */}
       <ThreatMap
-        events={filteredEvents}
+        events={eventsToDisplay}
         height={560}
         onSelectIp={onSelectIp}
+        selectedCountry={selectedCountry}
+        onResetCountryFilter={() => setSelectedCountry(null)}
         className="w-full"
       />
 
