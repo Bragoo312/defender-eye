@@ -679,3 +679,53 @@ func (db *DB) GetAllAgentConfigs() (map[string]string, error) {
 	}
 	return result, nil
 }
+
+func (db *DB) SetIPBanStatus(ip string, isBanned bool, action string, banDurationSec int, reason string) error {
+	if db == nil || db.conn == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	isBannedInt := 0
+	if isBanned {
+		isBannedInt = 1
+	}
+
+	// 1. Update ips table
+	_, err = tx.Exec(`UPDATE ips SET is_banned = ?, last_action = ? WHERE ip = ?`, isBannedInt, action, ip)
+	if err != nil {
+		return fmt.Errorf("updating ips table: %w", err)
+	}
+
+	// 2. Manage blocks table
+	if isBanned {
+		now := time.Now().UTC()
+		var expiresAt time.Time
+		if banDurationSec <= 0 {
+			expiresAt = now.AddDate(100, 0, 0) // ~100 years for permanent
+			banDurationSec = 3153600000
+		} else {
+			expiresAt = now.Add(time.Duration(banDurationSec) * time.Second)
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO blocks (ip, banned_at, expires_at, ban_seconds, reason, monitor, status)
+			VALUES (?, ?, ?, ?, ?, 'manual_ui', 'active')
+		`, ip, now, expiresAt, banDurationSec, reason)
+		if err != nil {
+			return fmt.Errorf("inserting into blocks table: %w", err)
+		}
+	} else {
+		_, err = tx.Exec(`UPDATE blocks SET status = 'unbanned' WHERE ip = ? AND status = 'active'`, ip)
+		if err != nil {
+			return fmt.Errorf("updating blocks status to unbanned: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}

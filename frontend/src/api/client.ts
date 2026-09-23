@@ -198,3 +198,20 @@ export async function pushAgentConfig(configID: string, configData: any): Promis
   }
   return res.json();
 }
+
+export async function executeIPAction(
+  ip: string,
+  action: 'ban' | 'unban' | 'whitelist',
+  duration: 'permanent' | '1h' | '24h' = 'permanent'
+): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/ip/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip, action, duration }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(errText || 'Не удалось выполнить действие над IP');
+  }
+  return res.json();
+}

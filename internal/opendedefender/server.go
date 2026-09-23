@@ -229,6 +229,47 @@ func (s *Server) GetPublicKeyBase64() string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
+func (s *Server) BroadcastAction(action string, targetIP string, duration int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"action":    action,
+		"target_ip": targetIP,
+		"duration":  duration,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return
+	}
+
+	env := Envelope{
+		Version:   1,
+		TaskID:    time.Now().UnixNano(),
+		Service:   "security",
+		Operation: "action/" + action,
+		Payload:   payload,
+	}
+
+	envData, err := json.Marshal(env)
+	if err != nil {
+		return
+	}
+
+	for sess := range s.sessions {
+		if sess.agentKey == nil {
+			continue
+		}
+		frame, err := sess.encryptForAgent(envData)
+		if err != nil {
+			continue
+		}
+		sess.writeMutex.Lock()
+		_ = sess.conn.WriteMessage(websocket.BinaryMessage, frame)
+		sess.writeMutex.Unlock()
+	}
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { IPInfo, SecurityEvent } from '../types';
-import { getIPDetails } from '../api/client';
+import { getIPDetails, executeIPAction } from '../api/client';
 import { getHumanIPVerdict, getHumanEventDescription } from '../utils/explainer';
 import {
   X,
@@ -12,6 +12,7 @@ import {
   RotateCw,
   ShieldCheck,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 
 interface IPModalProps {
@@ -24,6 +25,11 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
   const [data, setData] = useState<{ ip: IPInfo; events: SecurityEvent[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Quick Action State
+  const [selectedAction, setSelectedAction] = useState<'permanent' | '1h' | '24h' | 'unban' | 'whitelist'>('permanent');
+  const [applying, setApplying] = useState(false);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -51,6 +57,37 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleApplyAction = async () => {
+    if (!ip) return;
+    setApplying(true);
+    setActionSuccess(null);
+    try {
+      let act: 'ban' | 'unban' | 'whitelist' = 'ban';
+      let dur: 'permanent' | '1h' | '24h' = 'permanent';
+
+      if (selectedAction === 'unban') {
+        act = 'unban';
+      } else if (selectedAction === 'whitelist') {
+        act = 'whitelist';
+      } else {
+        act = 'ban';
+        dur = selectedAction;
+      }
+
+      await executeIPAction(ip, act, dur);
+      setActionSuccess('Правило успешно применено!');
+      
+      const updated = await getIPDetails(ip);
+      setData(updated);
+
+      setTimeout(() => setActionSuccess(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Ошибка выполнения действия');
+    } finally {
+      setApplying(false);
+    }
   };
 
   const ipInfo = data?.ip;
@@ -272,11 +309,54 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-[#0b101d] flex items-center justify-end">
+        {/* Footer with Quick Action Control Panel */}
+        <div className="px-6 py-3 border-t border-slate-800 bg-[#0b101d] flex items-center justify-between gap-4 flex-wrap">
+          {/* Action Selector */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 font-medium">Режим блокировки:</label>
+            <select
+              value={selectedAction}
+              onChange={(e) => setSelectedAction(e.target.value as any)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-sans"
+              disabled={applying}
+            >
+              <option value="permanent">🔒 Заблокировать навсегда</option>
+              <option value="1h">⏱️ Заблокировать на 1 час</option>
+              <option value="24h">⏱️ Заблокировать на 24 часа</option>
+              <option value="unban">🔓 Разблокировать (Снять бан)</option>
+              <option value="whitelist">🛡️ В белый список (Доверенный)</option>
+            </select>
+
+            <button
+              onClick={handleApplyAction}
+              disabled={applying}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                selectedAction === 'unban' || selectedAction === 'whitelist'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white'
+              } disabled:opacity-50 cursor-pointer`}
+            >
+              {applying ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Применение...
+                </>
+              ) : (
+                'Применить'
+              )}
+            </button>
+
+            {actionSuccess && (
+              <span className="text-xs text-emerald-400 font-mono animate-in fade-in flex items-center gap-1 font-semibold ml-1">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                {actionSuccess}
+              </span>
+            )}
+          </div>
+
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors font-medium text-xs font-sans"
+            className="px-4 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors font-medium text-xs font-sans ml-auto"
           >
             Закрыть досье
           </button>

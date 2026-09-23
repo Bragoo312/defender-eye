@@ -129,6 +129,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/events/stream", s.handleSSE)
 	mux.HandleFunc("/api/v1/ips", s.handleIPs)
 	mux.HandleFunc("/api/v1/ips/", s.handleIPDetails)
+	mux.HandleFunc("/api/v1/ip/action", s.handleIPAction)
 	mux.HandleFunc("/api/v1/blocks", s.handleBlocks)
 	mux.HandleFunc("/api/v1/ports", s.handlePorts)
 	mux.HandleFunc("/api/v1/ssh", s.handleSSH)
@@ -308,6 +309,142 @@ func (s *Server) handleIPDetails(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ip":     ipInfo,
 		"events": events,
+	})
+}
+
+type IPActionInput struct {
+	IP       string `json:"ip"`
+	Action   string `json:"action"`   // "ban", "unban", "whitelist"
+	Duration string `json:"duration"` // "permanent", "1h", "24h"
+}
+
+func (s *Server) handleIPAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var in IPActionInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "Invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ip := net.ParseIP(in.IP)
+	if ip == nil {
+		http.Error(w, "Invalid IP address", http.StatusBadRequest)
+		return
+	}
+
+	banSeconds := 0
+	switch in.Duration {
+	case "1h":
+		banSeconds = 3600
+	case "24h":
+		banSeconds = 86400
+	default:
+		banSeconds = 0 // permanent
+	}
+
+	var actionErr error
+	switch in.Action {
+	case "ban":
+		actionErr = s.db.SetIPBanStatus(in.IP, true, "manual_ban", banSeconds, "Ручная блокировка из интерфейса SOC")
+		if actionErr == nil {
+			event := model.SecurityEvent{
+				EventID:   fmt.Sprintf("man-%d", time.Now().UnixNano()),
+				Timestamp: time.Now().UTC(),
+				Source:    "ui_admin",
+				Monitor:   "ip_ban",
+				EventType: "manual_action",
+				Severity:  "critical",
+				SourceIP:  in.IP,
+				Protocol:  "tcp",
+				Action:    "blocked",
+				Service:   "soc_admin",
+				Message:   fmt.Sprintf("Ручная блокировка адреса из панели управления (длительность: %s)", in.Duration),
+			}
+			if ipInfo, _, err := s.db.GetIPDetails(in.IP); err == nil && ipInfo != nil {
+				event.CountryCode = ipInfo.CountryCode
+				event.CountryName = ipInfo.CountryName
+				event.City = ipInfo.City
+				event.Latitude = ipInfo.Latitude
+				event.Longitude = ipInfo.Longitude
+			}
+			_ = s.db.SaveEvent(event, banSeconds)
+			s.hub.BroadcastEvent(event)
+
+			if s.openDefServer != nil {
+				s.openDefServer.BroadcastAction("ban_ip", in.IP, banSeconds)
+			}
+		}
+	case "unban":
+		actionErr = s.db.SetIPBanStatus(in.IP, false, "manual_unban", 0, "Снятие блокировки из панели SOC")
+		if actionErr == nil {
+			event := model.SecurityEvent{
+				EventID:   fmt.Sprintf("man-%d", time.Now().UnixNano()),
+				Timestamp: time.Now().UTC(),
+				Source:    "ui_admin",
+				Monitor:   "ip_ban",
+				EventType: "manual_action",
+				Severity:  "low",
+				SourceIP:  in.IP,
+				Protocol:  "tcp",
+				Action:    "alerted",
+				Service:   "soc_admin",
+				Message:   "Ручное снятие блокировки адреса из панели управления",
+			}
+			if ipInfo, _, err := s.db.GetIPDetails(in.IP); err == nil && ipInfo != nil {
+				event.CountryCode = ipInfo.CountryCode
+				event.CountryName = ipInfo.CountryName
+				event.City = ipInfo.City
+				event.Latitude = ipInfo.Latitude
+				event.Longitude = ipInfo.Longitude
+			}
+			_ = s.db.SaveEvent(event, 0)
+			s.hub.BroadcastEvent(event)
+
+			if s.openDefServer != nil {
+				s.openDefServer.BroadcastAction("unban_ip", in.IP, 0)
+			}
+		}
+	case "whitelist":
+		actionErr = s.db.SetIPBanStatus(in.IP, false, "whitelist", 0, "Добавление в белый список")
+		if actionErr == nil {
+			event := model.SecurityEvent{
+				EventID:   fmt.Sprintf("man-%d", time.Now().UnixNano()),
+				Timestamp: time.Now().UTC(),
+				Source:    "ui_admin",
+				Monitor:   "ip_ban",
+				EventType: "manual_action",
+				Severity:  "low",
+				SourceIP:  in.IP,
+				Protocol:  "tcp",
+				Action:    "logged",
+				Service:   "soc_admin",
+				Message:   "Адрес добавлен в белый список панели SOC",
+			}
+			_ = s.db.SaveEvent(event, 0)
+			s.hub.BroadcastEvent(event)
+		}
+	default:
+		http.Error(w, "Unsupported action", http.StatusBadRequest)
+		return
+	}
+
+	if actionErr != nil {
+		http.Error(w, "Executing IP action: "+actionErr.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast updated stats to UI
+	if stats, err := s.db.GetStats(); err == nil {
+		s.hub.BroadcastStats(stats)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"message": "Действие успешно выполнено",
 	})
 }
 
