@@ -60,13 +60,16 @@ EOF
 }
 
 if [ -n "$LOG_FILE" ]; then
-  echo "Streaming logs from $LOG_FILE..."
+  echo "Streaming SSH logs from $LOG_FILE (syslog)..."
   tail -Fn0 "$LOG_FILE" | while read -r line; do
     parse_line "$line"
   done
-else
-  echo "Streaming logs from journalctl -u ssh..."
-  journalctl -u ssh -u sshd -Fn0 | while read -r line; do
+elif command -v journalctl >/dev/null 2>&1; then
+  echo "Streaming SSH logs from systemd-journald (Debian 12+ / Ubuntu 24.04+ without rsyslog)..."
+  journalctl -u ssh -u sshd -f -n 0 -o cat | while read -r line; do
     parse_line "$line"
   done
+else
+  echo "Error: No SSH log source found (/var/log/auth.log, /var/log/secure, or journalctl)" >&2
+  exit 1
 fi

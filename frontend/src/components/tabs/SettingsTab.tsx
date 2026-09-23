@@ -46,6 +46,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('server-01');
   const [agentSshMode, setAgentSshMode] = useState<'blocker' | 'logger' | 'disabled'>('blocker');
+  const [agentSshEngine, setAgentSshEngine] = useState<'syslog' | 'journal'>('syslog');
   const [agentSshTries, setAgentSshTries] = useState<number>(5);
   const [agentSshWindow, setAgentSshWindow] = useState<number>(300);
   const [agentSshBan, setAgentSshBan] = useState<number>(900);
@@ -82,6 +83,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
             const c = first.config.config;
             if (c.ssh_monitor) {
               if (c.ssh_monitor.mode) setAgentSshMode(c.ssh_monitor.mode);
+              if (c.ssh_monitor.engine) setAgentSshEngine(c.ssh_monitor.engine === 'journal' ? 'journal' : 'syslog');
               if (c.ssh_monitor.tries) setAgentSshTries(c.ssh_monitor.tries);
               if (c.ssh_monitor.window_seconds) setAgentSshWindow(c.ssh_monitor.window_seconds);
               if (c.ssh_monitor.ban_seconds) setAgentSshBan(c.ssh_monitor.ban_seconds);
@@ -118,8 +120,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
           .filter(Boolean),
         ssh_monitor: {
           mode: agentSshMode,
-          engine: 'syslog',
-          log_path: '/var/log/auth.log',
+          engine: agentSshEngine,
+          log_path: agentSshEngine === 'syslog' ? '/var/log/auth.log' : '',
           unit_name: 'sshd',
           tries: agentSshTries,
           window_seconds: agentSshWindow,
@@ -561,6 +563,18 @@ ebpf_monitors:
                 <option value="blocker">blocker (Автоматическая блокировка IP в iptables/nftables)</option>
                 <option value="logger">logger (Только журналирование без бана)</option>
                 <option value="disabled">disabled (Отключен)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Движок логов (Источник OS):</label>
+              <select
+                value={agentSshEngine}
+                onChange={(e) => setAgentSshEngine(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              >
+                <option value="syslog">syslog — /var/log/auth.log (Debian 10/11, Ubuntu 20.04/22.04)</option>
+                <option value="journal">journal — systemd-journald (Debian 12+ Bookworm, Ubuntu 24.04+ без rsyslog)</option>
               </select>
             </div>
 
