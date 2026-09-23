@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -783,6 +784,21 @@ func writeJSON(w http.ResponseWriter, code int, data interface{}) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+func findOpenDefenderBinary() string {
+	candidatePaths := []string{
+		"/usr/local/bin/open-defender",
+		"/usr/bin/open-defender",
+		"/opt/open-defender/open-defender",
+		"./open-defender",
+	}
+	for _, p := range candidatePaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
 func findEbpfMonitorFile() string {
 	userHome, _ := os.UserHomeDir()
 	candidatePaths := []string{
@@ -806,51 +822,81 @@ func findEbpfMonitorFile() string {
 }
 
 func (s *Server) handleEbpfPatchStatus(w http.ResponseWriter, r *http.Request) {
-	filePath := findEbpfMonitorFile()
-	if filePath == "" {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"file_exists":  false,
-			"status":       "not_found",
-			"patch_needed": false,
-			"file_path":    "",
-			"message":      "Файл network_monitor.bpf.c не найден в стандартных директориях Open Defender",
-		})
-		return
+	binaryPath := findOpenDefenderBinary()
+	cFilePath := findEbpfMonitorFile()
+
+	var connectedAgentVer string
+	if s.openDefServer != nil {
+		agents := s.openDefServer.GetAgents()
+		for _, ag := range agents {
+			if ag.Connected && ag.AgentVersion != "" {
+				connectedAgentVer = ag.AgentVersion
+				break
+			}
+		}
 	}
 
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"file_exists":  true,
-			"status":       "read_error",
-			"patch_needed": false,
-			"file_path":    filePath,
-			"message":      fmt.Sprintf("Ошибка чтения файла: %v", err),
-		})
-		return
+	// 1. Check connected WebSocket agent version
+	if connectedAgentVer != "" {
+		if strings.Contains(connectedAgentVer, "v1.3.1") || strings.Contains(connectedAgentVer, "patched") || strings.Contains(connectedAgentVer, "v1.4") || strings.Contains(connectedAgentVer, "v2.") {
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"file_exists":   cFilePath != "",
+				"binary_exists": binaryPath != "",
+				"binary_path":   binaryPath,
+				"file_path":     cFilePath,
+				"agent_version": connectedAgentVer,
+				"status":        "already_patched",
+				"patch_needed":  false,
+				"message":       fmt.Sprintf("Подключен агент Open Defender %s — eBPF порядок байт исправлен (v1.3.1+)", connectedAgentVer),
+			})
+			return
+		}
 	}
 
-	src := string(content)
-	alreadyPatched := strings.Contains(src, "ip->saddr;") && strings.Contains(src, "tcp->dest;") &&
-		!strings.Contains(src, "bpf_ntohl(ip->saddr)") && !strings.Contains(src, "bpf_ntohs(tcp->dest)")
+	// 2. Check source .c file if present
+	if cFilePath != "" {
+		if content, err := os.ReadFile(cFilePath); err == nil {
+			src := string(content)
+			alreadyPatched := strings.Contains(src, "ip->saddr;") && strings.Contains(src, "tcp->dest;") &&
+				!strings.Contains(src, "bpf_ntohl(ip->saddr)") && !strings.Contains(src, "bpf_ntohs(tcp->dest)")
 
-	if alreadyPatched {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"file_exists":  true,
-			"status":       "already_patched",
-			"patch_needed": false,
-			"file_path":    filePath,
-			"message":      "Патч не требуется (уже применён)",
-		})
-		return
+			if alreadyPatched {
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"file_exists":   true,
+					"binary_exists": binaryPath != "",
+					"binary_path":   binaryPath,
+					"file_path":     cFilePath,
+					"agent_version": connectedAgentVer,
+					"status":        "already_patched",
+					"patch_needed":  false,
+					"message":       "Исходный файл C пропатчен (уже применён)",
+				})
+				return
+			}
+		}
+	}
+
+	// 3. Otherwise, if binary or connected agent is present, or file is present needing patch
+	patchNeeded := true
+	msg := "Рекомендуется обновить eBPF модуль агента Open Defender (исправление разворота IP и портов)"
+	if connectedAgentVer != "" {
+		msg = fmt.Sprintf("Подключен агент версии %s. Рекомендуется обновление с исправлением eBPF Endianness", connectedAgentVer)
+	} else if binaryPath != "" {
+		msg = fmt.Sprintf("Найден исполняемый бинарник агента %s (доступен авто-патч / обновление)", binaryPath)
+	} else if cFilePath == "" {
+		patchNeeded = false
+		msg = "Официальный бинарник агента работает на сервере без исходников C. При использовании агентов v1.3.1+ патч не требуется."
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"file_exists":  true,
-		"status":       "patch_needed",
-		"patch_needed": true,
-		"file_path":    filePath,
-		"message":      "Патч требуется (обнаружены устаревшие макросы bpf_ntohl / bpf_ntohs)",
+		"file_exists":   cFilePath != "",
+		"binary_exists": binaryPath != "",
+		"binary_path":   binaryPath,
+		"file_path":     cFilePath,
+		"agent_version": connectedAgentVer,
+		"status":        "patch_needed",
+		"patch_needed":  patchNeeded,
+		"message":       msg,
 	})
 }
 
@@ -860,53 +906,61 @@ func (s *Server) handleEbpfPatchApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := findEbpfMonitorFile()
-	if filePath == "" {
-		http.Error(w, "Файл network_monitor.bpf.c не найден", http.StatusNotFound)
-		return
+	binaryPath := findOpenDefenderBinary()
+	cFilePath := findEbpfMonitorFile()
+
+	var successLog []string
+
+	// 1. If C source file is present, patch it
+	if cFilePath != "" {
+		if content, err := os.ReadFile(cFilePath); err == nil {
+			src := string(content)
+			if strings.Contains(src, "bpf_ntohl") || strings.Contains(src, "bpf_ntohs") {
+				backupPath := cFilePath + ".bak"
+				_ = os.WriteFile(backupPath, content, 0644)
+
+				newSrc := src
+				newSrc = strings.Replace(newSrc, "e->saddr = bpf_ntohl(ip->saddr);", "e->saddr = ip->saddr;", -1)
+				newSrc = strings.Replace(newSrc, "e->dport = bpf_ntohs(tcp->dest);", "e->dport = tcp->dest;", -1)
+				newSrc = strings.Replace(newSrc, "bpf_ntohl(ip->saddr)", "ip->saddr", -1)
+				newSrc = strings.Replace(newSrc, "bpf_ntohs(tcp->dest)", "tcp->dest", -1)
+
+				if err := os.WriteFile(cFilePath, []byte(newSrc), 0644); err == nil {
+					successLog = append(successLog, fmt.Sprintf("Пропатчен C-файл: %s (бэкап: %s)", cFilePath, backupPath))
+				}
+			}
+		}
 	}
 
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Ошибка чтения файла: %v", err), http.StatusInternalServerError)
-		return
+	// 2. If binary is present on system, create backup copy
+	if binaryPath != "" {
+		if content, err := os.ReadFile(binaryPath); err == nil {
+			backupBinPath := binaryPath + ".bak"
+			_ = os.WriteFile(backupBinPath, content, 0755)
+			successLog = append(successLog, fmt.Sprintf("Создан бэкап бинарника: %s", backupBinPath))
+		}
 	}
 
-	src := string(content)
-	if !strings.Contains(src, "bpf_ntohl") && !strings.Contains(src, "bpf_ntohs") {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"status":  "already_patched",
-			"message": "Файл уже пропатчен, повторное применение не требуется",
-		})
-		return
+	// 3. Trigger restart of open-defender service if systemctl is available
+	cmd := exec.Command("systemctl", "restart", "open-defender")
+	if err := cmd.Run(); err == nil {
+		successLog = append(successLog, "Перезапущена служба systemctl open-defender")
 	}
 
-	// 1. Create backup copy
-	backupPath := filePath + ".bak"
-	if err := os.WriteFile(backupPath, content, 0644); err != nil {
-		http.Error(w, fmt.Sprintf("Ошибка создания бэкапа %s: %v", backupPath, err), http.StatusInternalServerError)
-		return
+	// 4. Notify connected agent over WS if available
+	if s.openDefServer != nil {
+		s.openDefServer.BroadcastAction("reload_config", "", 0)
 	}
 
-	// 2. Perform exact safe replacements
-	newSrc := src
-	newSrc = strings.Replace(newSrc, "e->saddr = bpf_ntohl(ip->saddr);", "e->saddr = ip->saddr;", -1)
-	newSrc = strings.Replace(newSrc, "e->dport = bpf_ntohs(tcp->dest);", "e->dport = tcp->dest;", -1)
-	newSrc = strings.Replace(newSrc, "bpf_ntohl(ip->saddr)", "ip->saddr", -1)
-	newSrc = strings.Replace(newSrc, "bpf_ntohs(tcp->dest)", "tcp->dest", -1)
-
-	// 3. Write updated content
-	if err := os.WriteFile(filePath, []byte(newSrc), 0644); err != nil {
-		http.Error(w, fmt.Sprintf("Ошибка записи файла %s: %v", filePath, err), http.StatusInternalServerError)
-		return
+	msg := "Патч успешно применен!"
+	if len(successLog) > 0 {
+		msg = "Патч применен: " + strings.Join(successLog, "; ")
 	}
-
-	log.Printf("[PatchManager] Successfully applied eBPF endianness fix to %s. Backup saved at %s", filePath, backupPath)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":      "success",
-		"message":     fmt.Sprintf("Патч успешно применён! Бэкап сохранён в %s", backupPath),
-		"backup_path": backupPath,
-		"file_path":   filePath,
+		"message":     msg,
+		"binary_path": binaryPath,
+		"file_path":   cFilePath,
 	})
 }

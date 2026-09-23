@@ -220,6 +220,9 @@ export async function executeIPAction(
 
 export interface EbpfPatchStatus {
   file_exists: boolean;
+  binary_exists?: boolean;
+  binary_path?: string;
+  agent_version?: string;
   status: 'already_patched' | 'patch_needed' | 'not_found' | 'read_error';
   patch_needed: boolean;
   file_path: string;
