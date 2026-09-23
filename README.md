@@ -3,6 +3,7 @@
 <div align="center">
 
 ![Defender Eye SOC](https://img.shields.io/badge/Security_SOC-Defender_Eye_v1.3.0-06b6d4?style=for-the-badge&logo=shield)
+[![Designed for Open Defender](https://img.shields.io/badge/Designed_for-Open_Defender-7c3aed?style=for-the-badge&logo=shield)](https://github.com/fridalif/open-defender)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)
 ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC?style=for-the-badge&logo=tailwind-css)
@@ -16,6 +17,12 @@
 [Установка](#-быстрый-старт) • [Архитектура](#-архитектура-и-принципы) • [Возможности](#-ключевые-возможности) • [Документация](#-документация) • [SSH-Туннель](#-безопасный-доступ)
 
 </div>
+
+---
+
+> [!NOTE]
+> ### 🛡️ Веб-панель и центр управления для [Open Defender](https://github.com/fridalif/open-defender)
+> **Defender Eye** создана как автономный графический интерфейс и монитор безопасности для открытой системы защиты **[Open Defender](https://github.com/fridalif/open-defender)** (eBPF & SSH Intrusion Prevention System). Панель принимает события по зашифрованному сквозному каналу (E2EE), визуализирует кибератаки на интерактивной карте в реальном времени, проводит аудит открытых портов хоста и позволяет управлять блокировками в один клик.
 
 ---
 
