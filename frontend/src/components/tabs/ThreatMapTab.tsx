@@ -22,7 +22,7 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
 
   // Fetch events from database when selected country or viewMode changes
   useEffect(() => {
-    let isCancelled = false;
+    const controller = new AbortController();
 
     if (viewMode === 'all' || selectedCountry) {
       setLoadingHistory(true);
@@ -31,16 +31,18 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
         country: selectedCountry || undefined,
       })
         .then((res) => {
-          if (!isCancelled) setHistoricalEvents(res.events);
+          if (!controller.signal.aborted) setHistoricalEvents(res.events);
         })
-        .catch((err) => console.error('[ThreatMapTab] Error fetching history:', err))
+        .catch((err) => {
+          if (!controller.signal.aborted) console.error('[ThreatMapTab] Error fetching history:', err);
+        })
         .finally(() => {
-          if (!isCancelled) setLoadingHistory(false);
+          if (!controller.signal.aborted) setLoadingHistory(false);
         });
     }
 
     return () => {
-      isCancelled = true;
+      controller.abort();
     };
   }, [selectedCountry, viewMode]);
 

@@ -61,11 +61,11 @@ export function App() {
     const saved = localStorage.getItem('defender_telemetry_rate');
     if (saved) {
       const parsed = parseInt(saved, 10);
-      if (parsed > 0 && parsed !== pollIntervalMs) {
-        setPollIntervalMs(parsed);
+      if (parsed > 0) {
+        setPollIntervalMs((prev) => (prev !== parsed ? parsed : prev));
       }
     }
-  }, [activeTab, pollIntervalMs]);
+  }, [activeTab]);
 
   useEffect(() => {
     fetchStats();
@@ -95,7 +95,7 @@ export function App() {
             activeBlocks += 1;
             recentBlocks = [
               {
-                id: Date.now(),
+                id: Math.random(),
                 ip: newEvent.source_ip,
                 banned_at: newEvent.timestamp,
                 expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
@@ -135,6 +135,7 @@ export function App() {
       fetchStats();
     } catch (err) {
       console.error('Failed to toggle demo mode:', err);
+      setDemoMode(!nextVal);
     }
   };
 
@@ -196,7 +197,7 @@ export function App() {
           {activeTab === 'ports' && <PortsTab />}
 
           {activeTab === 'system' && (
-            <SystemTab currentMetric={stats?.current_system} />
+            <SystemTab currentMetric={stats?.current_system} pollIntervalMs={pollIntervalMs} />
           )}
 
           {activeTab === 'settings' && (

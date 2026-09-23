@@ -151,10 +151,16 @@ export const PortsTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {listeningPorts.length === 0 ? (
+              {loading ? (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-400 font-mono text-xs">
                     Загрузка списка открытых портов сервера...
+                  </td>
+                </tr>
+              ) : listeningPorts.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-mono text-xs">
+                    Открытые прослушиваемые порты не обнаружены
                   </td>
                 </tr>
               ) : (

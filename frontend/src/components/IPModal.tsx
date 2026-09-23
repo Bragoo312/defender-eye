@@ -30,6 +30,7 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
   const [selectedAction, setSelectedAction] = useState<'permanent' | '1h' | '24h' | 'unban' | 'whitelist'>('permanent');
   const [applying, setApplying] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -44,11 +45,19 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
       setData(null);
       return;
     }
+    const controller = new AbortController();
     setLoading(true);
     getIPDetails(ip)
-      .then((res) => setData(res))
-      .catch((err) => console.error(err))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (!controller.signal.aborted) setData(res);
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error(err);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [ip]);
 
   if (!ip) return null;
@@ -63,6 +72,7 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
     if (!ip) return;
     setApplying(true);
     setActionSuccess(null);
+    setActionError(null);
     try {
       let act: 'ban' | 'unban' | 'whitelist' = 'ban';
       let dur: 'permanent' | '1h' | '24h' = 'permanent';
@@ -84,7 +94,7 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
 
       setTimeout(() => setActionSuccess(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'Ошибка выполнения действия');
+      setActionError(err.message || 'Ошибка выполнения действия');
     } finally {
       setApplying(false);
     }
@@ -350,6 +360,12 @@ export const IPModal: React.FC<IPModalProps> = ({ ip, onClose, onSelectEvent }) 
               <span className="text-xs text-emerald-400 font-mono animate-in fade-in flex items-center gap-1 font-semibold ml-1">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
                 {actionSuccess}
+              </span>
+            )}
+
+            {actionError && (
+              <span className="text-xs text-rose-400 font-mono animate-in fade-in flex items-center gap-1 font-semibold ml-1 bg-rose-950/40 border border-rose-800/50 rounded px-2 py-0.5">
+                {actionError}
               </span>
             )}
           </div>

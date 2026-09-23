@@ -369,12 +369,19 @@ func (db *DB) GetEvents(limit, offset int, filters EventFilters) ([]model.Securi
 		events = append(events, e)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	return events, total, nil
 }
 
 func (db *DB) GetIPs(limit, offset int, search string) ([]model.IPInfo, int, error) {
 	if limit <= 0 {
 		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
 	}
 
 	where := ""
@@ -418,6 +425,10 @@ func (db *DB) GetIPs(limit, offset int, search string) ([]model.IPInfo, int, err
 		ip.IsBanned = isBannedInt == 1
 		ips = append(ips, ip)
 	}
+	
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return ips, total, nil
 }
@@ -451,6 +462,9 @@ func (db *DB) GetIPDetails(ipStr string) (*model.IPInfo, []model.SecurityEvent, 
 func (db *DB) GetBlocks(limit, offset int, status string) ([]model.BlockInfo, int, error) {
 	if limit <= 0 {
 		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
 	}
 
 	now := time.Now().UTC()
@@ -495,6 +509,10 @@ func (db *DB) GetBlocks(limit, offset int, status string) ([]model.BlockInfo, in
 		blocks = append(blocks, b)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	return blocks, total, nil
 }
 
@@ -524,6 +542,10 @@ func (db *DB) GetTopCountries() ([]model.CountryStat, error) {
 		}
 		stats = append(stats, s)
 		totalAll += s.Count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	for i := range stats {
@@ -557,6 +579,10 @@ func (db *DB) GetTopPorts() ([]model.PortStat, error) {
 			return nil, err
 		}
 		stats = append(stats, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return stats, nil
@@ -606,6 +632,10 @@ func (db *DB) GetRecentMetrics(limit int) ([]model.SystemMetric, error) {
 			return nil, err
 		}
 		metrics = append(metrics, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	// Reverse so oldest is first for charts
@@ -681,6 +711,9 @@ func (db *DB) GetAllAgentConfigs() (map[string]string, error) {
 		if err := rows.Scan(&id, &payload); err == nil {
 			result[id] = payload
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return result, err
 	}
 	return result, nil
 }

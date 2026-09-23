@@ -14,9 +14,10 @@ import {
 
 interface SystemTabProps {
   currentMetric?: SystemMetric;
+  pollIntervalMs?: number;
 }
 
-export const SystemTab: React.FC<SystemTabProps> = ({ currentMetric }) => {
+export const SystemTab: React.FC<SystemTabProps> = ({ currentMetric, pollIntervalMs = 3000 }) => {
   const [history, setHistory] = useState<SystemMetric[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -34,9 +35,9 @@ export const SystemTab: React.FC<SystemTabProps> = ({ currentMetric }) => {
 
   useEffect(() => {
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000);
+    const interval = setInterval(fetchMetrics, pollIntervalMs);
     return () => clearInterval(interval);
-  }, []);
+  }, [pollIntervalMs]);
 
   const metric = currentMetric || history[history.length - 1];
 

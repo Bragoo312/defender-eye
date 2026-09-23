@@ -150,6 +150,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragMoved = useRef(false);
 
   // Tooltip with boundary clipping protection
   const [tooltip, setTooltip] = useState<{
@@ -185,7 +186,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       let lat = ev.latitude;
       let lon = ev.longitude;
 
-      if (!lat && !lon) {
+      if (lat == null && lon == null) {
         const hash = ev.source_ip
           .split('.')
           .reduce((acc, part) => (acc * 31 + parseInt(part, 10)) % 1000, 7);
@@ -305,21 +306,24 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       ctx.lineWidth = 1.2 * Math.min(2, Math.max(0.8, zoom));
       ctx.setLineDash([3, 3]); // Neon dashed cyber radar borders!
 
-      CONTINENTS.forEach((polygon) => {
-        if (polygon.length === 0) return;
-        ctx.beginPath();
-        const [startX, startY] = toXY(polygon[0][0], polygon[0][1]);
-        ctx.moveTo(startX, startY);
+      try {
+        CONTINENTS.forEach((polygon) => {
+          if (polygon.length === 0) return;
+          ctx.beginPath();
+          const [startX, startY] = toXY(polygon[0][0], polygon[0][1]);
+          ctx.moveTo(startX, startY);
 
-        for (let i = 1; i < polygon.length; i++) {
-          const [px, py] = toXY(polygon[i][0], polygon[i][1]);
-          ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      });
-      ctx.setLineDash([]); // Reset line dash for laser arcs and nodes
+          for (let i = 1; i < polygon.length; i++) {
+            const [px, py] = toXY(polygon[i][0], polygon[i][1]);
+            ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        });
+      } finally {
+        ctx.setLineDash([]); // Reset line dash for laser arcs and nodes
+      }
 
       // Target Defended Server Position
       const [targetX, targetY] = toXY(TARGET_SERVER.lat, TARGET_SERVER.lon);
@@ -357,28 +361,58 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
         ctx.shadowBlur = 0;
       });
 
-      // Draw Attacking Nodes
+      // Draw Attacking Nodes with viewport culling & Path2D batching
+      const nodeRadius = 3.5 * Math.min(1.5, zoom);
+      const pulseZoom = Math.min(1.6, zoom);
+
+      const critPath = new Path2D();
+      const highPath = new Path2D();
+      const defaultPath = new Path2D();
+      let pulseCount = 0;
+
       attackNodes.forEach((node) => {
         const [nx, ny] = toXY(node.lat, node.lon);
 
-        let nodeColor = '#38bdf8';
-        if (node.severity === 'critical') nodeColor = '#f43f5e';
-        else if (node.severity === 'high') nodeColor = '#f59e0b';
+        // Viewport culling (skip nodes outside visible canvas)
+        if (nx < -20 || nx > width + 20 || ny < -20 || ny > height + 20) return;
 
-        // Pulse ring
-        const pulseRadius = (4 + (Math.sin(pulseTime * 2 + node.lat) + 1) * 4) * Math.min(1.6, zoom);
-        ctx.strokeStyle = nodeColor + '66';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(nx, ny, pulseRadius, 0, Math.PI * 2);
-        ctx.stroke();
+        // Add to batched dot path
+        if (node.severity === 'critical') {
+          critPath.moveTo(nx + nodeRadius, ny);
+          critPath.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
+        } else if (node.severity === 'high') {
+          highPath.moveTo(nx + nodeRadius, ny);
+          highPath.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
+        } else {
+          defaultPath.moveTo(nx + nodeRadius, ny);
+          defaultPath.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
+        }
 
-        // Inner node dot
-        ctx.fillStyle = nodeColor;
-        ctx.beginPath();
-        ctx.arc(nx, ny, 3.5 * Math.min(1.5, zoom), 0, Math.PI * 2);
-        ctx.fill();
+        // Pulse ring: render for critical/high nodes and first 80 visible nodes
+        if (node.severity === 'critical' || node.severity === 'high' || pulseCount < 80) {
+          pulseCount++;
+          let ringColor = '#38bdf866';
+          if (node.severity === 'critical') ringColor = '#f43f5e66';
+          else if (node.severity === 'high') ringColor = '#f59e0b66';
+
+          const pulseRadius = (4 + (Math.sin(pulseTime * 2 + node.lat) + 1) * 4) * pulseZoom;
+          ctx.strokeStyle = ringColor;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(nx, ny, pulseRadius, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       });
+
+      // Single batched draw calls for all nodes
+      ctx.fillStyle = '#f43f5e';
+      ctx.fill(critPath);
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill(highPath);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.fill(defaultPath);
 
       // Draw Target Defended Server
       const serverRadius = (6 + Math.sin(pulseTime * 3) * 2) * Math.min(1.6, zoom);
@@ -451,6 +485,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return; // Only left click
     setIsDragging(true);
+    dragMoved.current = false;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
     panStartRef.current = { ...pan };
   };
@@ -468,6 +503,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
         x: panStartRef.current.x + dx,
         y: panStartRef.current.y + dy,
       });
+      dragMoved.current = true;
       setTooltip(null);
       return;
     }
@@ -558,7 +594,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
           setTooltip(null);
         }}
         onClick={() => {
-          if (tooltip && onSelectIp && !isDragging) {
+          if (tooltip && onSelectIp && !isDragging && !dragMoved.current) {
             onSelectIp(tooltip.ip);
           }
         }}

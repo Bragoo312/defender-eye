@@ -28,16 +28,30 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type wsClientEntry struct {
+	conn *websocket.Conn
+	send chan []byte
+	done chan struct{}
+	once sync.Once
+}
+
+func (e *wsClientEntry) Close() {
+	e.once.Do(func() {
+		close(e.done)
+		_ = e.conn.Close()
+	})
+}
+
 type Hub struct {
 	mu         sync.RWMutex
 	sseClients map[chan []byte]bool
-	wsClients  map[*websocket.Conn]bool
+	wsClients  map[*websocket.Conn]*wsClientEntry
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		sseClients: make(map[chan []byte]bool),
-		wsClients:  make(map[*websocket.Conn]bool),
+		wsClients:  make(map[*websocket.Conn]*wsClientEntry),
 	}
 }
 
@@ -62,8 +76,12 @@ func (h *Hub) BroadcastEvent(event model.SecurityEvent) {
 	}
 
 	// Broadcast to WebSockets
-	for conn := range h.wsClients {
-		_ = conn.WriteMessage(websocket.TextMessage, data)
+	for _, client := range h.wsClients {
+		select {
+		case <-client.done:
+		case client.send <- data:
+		default:
+		}
 	}
 }
 
@@ -86,8 +104,12 @@ func (h *Hub) BroadcastStats(stats model.DashboardStats) {
 		}
 	}
 
-	for conn := range h.wsClients {
-		_ = conn.WriteMessage(websocket.TextMessage, data)
+	for _, client := range h.wsClients {
+		select {
+		case <-client.done:
+		case client.send <- data:
+		default:
+		}
 	}
 }
 
@@ -256,6 +278,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	var in normalizer.IngestEventInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -305,6 +328,10 @@ func (s *Server) handleIPDetails(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing IP parameter", http.StatusBadRequest)
 		return
 	}
+	if net.ParseIP(ipStr) == nil {
+		http.Error(w, "Invalid IP address parameter", http.StatusBadRequest)
+		return
+	}
 
 	ipInfo, events, err := s.db.GetIPDetails(ipStr)
 	if err != nil {
@@ -330,6 +357,7 @@ func (s *Server) handleIPAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	var in IPActionInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "Invalid JSON body: "+err.Error(), http.StatusBadRequest)
@@ -525,6 +553,7 @@ func (s *Server) handleSystemMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 		var req struct {
 			DemoMode      *bool `json:"demo_mode"`
 			RetentionDays *int  `json:"retention_days"`
@@ -534,7 +563,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if req.DemoMode != nil {
+		if req.DemoMode != nil && s.sim != nil {
 			if *req.DemoMode {
 				s.sim.Start()
 			} else {
@@ -547,12 +576,17 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	demo := false
+	if s.sim != nil {
+		demo = s.sim.IsRunning()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"retention_days":     s.cfg.Server.RetentionDays,
-		"demo_mode":          s.sim.IsRunning(),
-		"geoip_enabled":      s.cfg.GeoIP.Enabled,
-		"open_defender_key":  s.openDefKey,
-		"bind_address":       s.cfg.Server.BindAddress,
+		"retention_days":      s.cfg.Server.RetentionDays,
+		"demo_mode":           demo,
+		"geoip_enabled":       s.cfg.GeoIP.Enabled,
+		"open_defender_key":   s.openDefKey,
+		"bind_address":        s.cfg.Server.BindAddress,
 		"default_ban_seconds": s.cfg.OpenDefender.DefaultBanSeconds,
 	})
 }
@@ -602,15 +636,37 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	entry := &wsClientEntry{
+		conn: conn,
+		send: make(chan []byte, 64),
+		done: make(chan struct{}),
+	}
+
 	s.hub.mu.Lock()
-	s.hub.wsClients[conn] = true
+	s.hub.wsClients[conn] = entry
 	s.hub.mu.Unlock()
+
+	// Dedicated single-writer goroutine per connection to prevent race conditions
+	go func() {
+		for {
+			select {
+			case <-entry.done:
+				return
+			case msg := <-entry.send:
+				_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					entry.Close()
+					return
+				}
+			}
+		}
+	}()
 
 	defer func() {
 		s.hub.mu.Lock()
 		delete(s.hub.wsClients, conn)
 		s.hub.mu.Unlock()
-		_ = conn.Close()
+		entry.Close()
 	}()
 
 	// Keep-alive reading
@@ -705,12 +761,12 @@ func (s *Server) handleGeoIPUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	written, err := io.Copy(out, resp.Body)
+	written, err := io.Copy(out, io.LimitReader(resp.Body, 200<<20)) // 200 MB limit
 	_ = out.Close()
-	if err != nil {
+	if err != nil || written < 1024 {
 		_ = os.Remove(tmpFile)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"error": fmt.Sprintf("ошибка записи данных: %v", err),
+			"error": fmt.Sprintf("ошибка записи данных или пустой файл (размер: %d)", written),
 		})
 		return
 	}
@@ -766,6 +822,7 @@ func (s *Server) handlePushAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 	var req struct {
 		ConfigID string          `json:"config_id"`
 		Config   json.RawMessage `json:"config"`

@@ -22,11 +22,20 @@ export const EventsTab: React.FC<EventsTabProps> = ({ onSelectEvent, onSelectIp 
 
   // Filters & Pagination State
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [severity, setSeverity] = useState('');
   const [action, setAction] = useState('');
   const [monitor, setMonitor] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -34,7 +43,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({ onSelectEvent, onSelectIp 
       const res = await getEvents({
         limit: pageSize,
         offset: (page - 1) * pageSize,
-        search: search.trim() || undefined,
+        search: debouncedSearch.trim() || undefined,
         severity: severity || undefined,
         action: action || undefined,
         monitor: monitor || undefined,
@@ -46,7 +55,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({ onSelectEvent, onSelectIp 
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, severity, action, monitor]);
+  }, [page, pageSize, debouncedSearch, severity, action, monitor]);
 
   useEffect(() => {
     fetchEvents();
@@ -95,10 +104,7 @@ export const EventsTab: React.FC<EventsTabProps> = ({ onSelectEvent, onSelectIp 
             type="text"
             placeholder="Поиск по IP адресу, стране или логину..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 transition-all font-mono"
           />
         </div>

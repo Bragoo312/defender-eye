@@ -19,8 +19,8 @@ export async function getEvents(params: {
   search?: string;
 }): Promise<{ events: SecurityEvent[]; total: number; limit: number; offset: number }> {
   const query = new URLSearchParams();
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.limit !== undefined && params.limit !== null) query.set('limit', params.limit.toString());
+  if (params.offset !== undefined && params.offset !== null) query.set('offset', params.offset.toString());
   if (params.monitor) query.set('monitor', params.monitor);
   if (params.severity) query.set('severity', params.severity);
   if (params.action) query.set('action', params.action);
@@ -39,8 +39,8 @@ export async function getIPs(params: {
   search?: string;
 }): Promise<{ ips: IPInfo[]; total: number; limit: number; offset: number }> {
   const query = new URLSearchParams();
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.limit !== undefined && params.limit !== null) query.set('limit', params.limit.toString());
+  if (params.offset !== undefined && params.offset !== null) query.set('offset', params.offset.toString());
   if (params.search) query.set('search', params.search);
 
   const res = await fetch(`${BASE_URL}/api/v1/ips?${query.toString()}`);
@@ -60,8 +60,8 @@ export async function getBlocks(params: {
   status?: string;
 }): Promise<{ blocks: BlockInfo[]; total: number; limit: number; offset: number }> {
   const query = new URLSearchParams();
-  if (params.limit) query.set('limit', params.limit.toString());
-  if (params.offset) query.set('offset', params.offset.toString());
+  if (params.limit !== undefined && params.limit !== null) query.set('limit', params.limit.toString());
+  if (params.offset !== undefined && params.offset !== null) query.set('offset', params.offset.toString());
   if (params.status) query.set('status', params.status);
 
   const res = await fetch(`${BASE_URL}/api/v1/blocks?${query.toString()}`);

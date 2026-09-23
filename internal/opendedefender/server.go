@@ -307,15 +307,24 @@ func (sess *session) run() {
 		return nil
 	})
 
-	// Ping ticker: Open Defender expects server ping every 30 s and disconnects if idle > 90 s
+	// Ping ticker: Open Defender expects server ping every 25 s and disconnects if idle > 90 s
 	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
+	stopPing := make(chan struct{})
+	defer func() {
+		ticker.Stop()
+		close(stopPing)
+	}()
 
 	go func() {
-		for range ticker.C {
-			sess.writeMutex.Lock()
-			_ = sess.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
-			sess.writeMutex.Unlock()
+		for {
+			select {
+			case <-stopPing:
+				return
+			case <-ticker.C:
+				sess.writeMutex.Lock()
+				_ = sess.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				sess.writeMutex.Unlock()
+			}
 		}
 	}()
 
