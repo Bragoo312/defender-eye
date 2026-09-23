@@ -217,3 +217,28 @@ export async function executeIPAction(
   }
   return res.json();
 }
+
+export interface EbpfPatchStatus {
+  file_exists: boolean;
+  status: 'already_patched' | 'patch_needed' | 'not_found' | 'read_error';
+  patch_needed: boolean;
+  file_path: string;
+  message: string;
+}
+
+export async function getEbpfPatchStatus(): Promise<EbpfPatchStatus> {
+  const res = await fetch(`${BASE_URL}/api/v1/patch/ebpf/status`);
+  if (!res.ok) throw new Error('Failed to fetch eBPF patch status');
+  return res.json();
+}
+
+export async function applyEbpfPatch(): Promise<{ status: string; message: string; backup_path?: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/patch/ebpf/apply`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(errText || 'Не удалось применить патч eBPF');
+  }
+  return res.json();
+}

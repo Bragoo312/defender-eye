@@ -7,8 +7,11 @@ import {
   updateGeoIP,
   getAgents,
   pushAgentConfig,
+  getEbpfPatchStatus,
+  applyEbpfPatch,
   type GeoIPStatus,
   type AgentInfo,
+  type EbpfPatchStatus,
 } from '../../api/client';
 import {
   Settings as SettingsIcon,
@@ -29,6 +32,9 @@ import {
   Search,
   RotateCcw,
   Shield,
+  Wrench,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface SettingsTabProps {
@@ -77,6 +83,45 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [pushingConfig, setPushingConfig] = useState(false);
   const [pushMsg, setPushMsg] = useState<string | null>(null);
   const [pushErr, setPushErr] = useState<string | null>(null);
+
+  // eBPF Auto-Patcher State
+  const [ebpfPatchStatus, setEbpfPatchStatus] = useState<EbpfPatchStatus | null>(null);
+  const [checkingPatch, setCheckingPatch] = useState(false);
+  const [applyingPatch, setApplyingPatch] = useState(false);
+  const [patchMsg, setPatchMsg] = useState<string | null>(null);
+  const [patchErr, setPatchErr] = useState<string | null>(null);
+
+  const checkPatchStatus = async () => {
+    setCheckingPatch(true);
+    setPatchErr(null);
+    try {
+      const res = await getEbpfPatchStatus();
+      setEbpfPatchStatus(res);
+    } catch (err: any) {
+      setPatchErr(err.message || 'Ошибка проверки статуса патча');
+    } finally {
+      setCheckingPatch(false);
+    }
+  };
+
+  const handleApplyPatch = async () => {
+    setApplyingPatch(true);
+    setPatchMsg(null);
+    setPatchErr(null);
+    try {
+      const res = await applyEbpfPatch();
+      setPatchMsg(res.message);
+      await checkPatchStatus();
+    } catch (err: any) {
+      setPatchErr(err.message || 'Ошибка применения патча');
+    } finally {
+      setApplyingPatch(false);
+    }
+  };
+
+  useEffect(() => {
+    checkPatchStatus();
+  }, []);
 
   const applyConfigToForm = (c: any) => {
     if (!c) return;
@@ -940,6 +985,108 @@ ebpf_monitors:
             </>
           )}
         </button>
+      </div>
+
+      {/* Panel: Open Defender eBPF Endianness Auto-Patcher */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-semibold text-slate-200">
+              Авто-патчер eBPF Network Monitor (Fix Endianness)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={checkPatchStatus}
+            disabled={checkingPatch}
+            className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-mono cursor-pointer disabled:opacity-50"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${checkingPatch ? 'animate-spin' : ''}`} />
+            <span>{checkingPatch ? 'Проверка...' : 'Проверить патч'}</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-300 font-sans leading-relaxed">
+          Автоматическое исправление известной проблемы с разворотом IP-адресов и портов задом наперёд в файле <code className="text-amber-300 font-mono">pkg/ebpfmonitors/bpf/network_monitor.bpf.c</code> (вызовы <code className="text-rose-400 font-mono">bpf_ntohl</code> / <code className="text-rose-400 font-mono">bpf_ntohs</code>). Безопасно заменяет 2 строки с автоматическим созданием бэкапа <code className="text-emerald-400 font-mono">.bak</code>.
+        </p>
+
+        {/* Status Display Card */}
+        {ebpfPatchStatus && (
+          <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2 text-xs font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Статус файла:</span>
+              {ebpfPatchStatus.file_exists ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Файл найден
+                </span>
+              ) : (
+                <span className="text-slate-400 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-slate-400" /> Не найден в стандартных директориях
+                </span>
+              )}
+            </div>
+
+            {ebpfPatchStatus.file_exists && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-slate-400 shrink-0">Путь к файлу:</span>
+                <span className="text-cyan-300 truncate max-w-md font-mono" title={ebpfPatchStatus.file_path}>
+                  {ebpfPatchStatus.file_path}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+              <span className="text-slate-400">Статус патча:</span>
+              {ebpfPatchStatus.status === 'already_patched' ? (
+                <span className="text-emerald-400 font-bold px-2 py-0.5 bg-emerald-950/80 border border-emerald-800 rounded flex items-center gap-1 text-[11px]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Патч не требуется (уже применён)
+                </span>
+              ) : ebpfPatchStatus.status === 'patch_needed' ? (
+                <span className="text-amber-300 font-bold px-2 py-0.5 bg-amber-950/80 border border-amber-800 rounded flex items-center gap-1 text-[11px] animate-pulse">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Патч требуется
+                </span>
+              ) : (
+                <span className="text-slate-400 text-[11px]">{ebpfPatchStatus.message}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {patchMsg && (
+          <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2 text-xs font-mono">
+            <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{patchMsg}</span>
+          </div>
+        )}
+
+        {patchErr && (
+          <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 flex items-center gap-2 text-xs font-mono">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{patchErr}</span>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleApplyPatch}
+            disabled={applyingPatch || !ebpfPatchStatus?.patch_needed}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(245,158,11,0.2)] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {applyingPatch ? (
+              <>
+                <RotateCw className="w-4 h-4 animate-spin" />
+                <span>Создание бэкапа и замена строк...</span>
+              </>
+            ) : (
+              <>
+                <Wrench className="w-4 h-4" />
+                <span>Применить патч eBPF (Fix Endianness)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Panel 3: Open Defender E2EE Integration & Config */}

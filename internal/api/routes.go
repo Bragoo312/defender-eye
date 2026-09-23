@@ -139,6 +139,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/geoip/update", s.handleGeoIPUpdate)
 	mux.HandleFunc("/api/v1/opendedefender/agents", s.handleGetAgents)
 	mux.HandleFunc("/api/v1/opendedefender/agents/push", s.handlePushAgentConfig)
+	mux.HandleFunc("/api/v1/patch/ebpf/status", s.handleEbpfPatchStatus)
+	mux.HandleFunc("/api/v1/patch/ebpf/apply", s.handleEbpfPatchApply)
 
 	// WebSocket for frontend
 	mux.HandleFunc("/ws/events", s.handleWS)
@@ -779,4 +781,132 @@ func writeJSON(w http.ResponseWriter, code int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+func findEbpfMonitorFile() string {
+	userHome, _ := os.UserHomeDir()
+	candidatePaths := []string{
+		"/opt/open-defender/pkg/ebpfmonitors/bpf/network_monitor.bpf.c",
+		"/usr/local/open-defender/pkg/ebpfmonitors/bpf/network_monitor.bpf.c",
+		"/etc/open-defender/bpf/network_monitor.bpf.c",
+		filepath.Join(userHome, "open-defender", "pkg", "ebpfmonitors", "bpf", "network_monitor.bpf.c"),
+		"./open-defender/pkg/ebpfmonitors/bpf/network_monitor.bpf.c",
+		"../open-defender/pkg/ebpfmonitors/bpf/network_monitor.bpf.c",
+	}
+
+	for _, p := range candidatePaths {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func (s *Server) handleEbpfPatchStatus(w http.ResponseWriter, r *http.Request) {
+	filePath := findEbpfMonitorFile()
+	if filePath == "" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"file_exists":  false,
+			"status":       "not_found",
+			"patch_needed": false,
+			"file_path":    "",
+			"message":      "Файл network_monitor.bpf.c не найден в стандартных директориях Open Defender",
+		})
+		return
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"file_exists":  true,
+			"status":       "read_error",
+			"patch_needed": false,
+			"file_path":    filePath,
+			"message":      fmt.Sprintf("Ошибка чтения файла: %v", err),
+		})
+		return
+	}
+
+	src := string(content)
+	alreadyPatched := strings.Contains(src, "ip->saddr;") && strings.Contains(src, "tcp->dest;") &&
+		!strings.Contains(src, "bpf_ntohl(ip->saddr)") && !strings.Contains(src, "bpf_ntohs(tcp->dest)")
+
+	if alreadyPatched {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"file_exists":  true,
+			"status":       "already_patched",
+			"patch_needed": false,
+			"file_path":    filePath,
+			"message":      "Патч не требуется (уже применён)",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"file_exists":  true,
+		"status":       "patch_needed",
+		"patch_needed": true,
+		"file_path":    filePath,
+		"message":      "Патч требуется (обнаружены устаревшие макросы bpf_ntohl / bpf_ntohs)",
+	})
+}
+
+func (s *Server) handleEbpfPatchApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filePath := findEbpfMonitorFile()
+	if filePath == "" {
+		http.Error(w, "Файл network_monitor.bpf.c не найден", http.StatusNotFound)
+		return
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Ошибка чтения файла: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	src := string(content)
+	if !strings.Contains(src, "bpf_ntohl") && !strings.Contains(src, "bpf_ntohs") {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status":  "already_patched",
+			"message": "Файл уже пропатчен, повторное применение не требуется",
+		})
+		return
+	}
+
+	// 1. Create backup copy
+	backupPath := filePath + ".bak"
+	if err := os.WriteFile(backupPath, content, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Ошибка создания бэкапа %s: %v", backupPath, err), http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Perform exact safe replacements
+	newSrc := src
+	newSrc = strings.Replace(newSrc, "e->saddr = bpf_ntohl(ip->saddr);", "e->saddr = ip->saddr;", -1)
+	newSrc = strings.Replace(newSrc, "e->dport = bpf_ntohs(tcp->dest);", "e->dport = tcp->dest;", -1)
+	newSrc = strings.Replace(newSrc, "bpf_ntohl(ip->saddr)", "ip->saddr", -1)
+	newSrc = strings.Replace(newSrc, "bpf_ntohs(tcp->dest)", "tcp->dest", -1)
+
+	// 3. Write updated content
+	if err := os.WriteFile(filePath, []byte(newSrc), 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Ошибка записи файла %s: %v", filePath, err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[PatchManager] Successfully applied eBPF endianness fix to %s. Backup saved at %s", filePath, backupPath)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":      "success",
+		"message":     fmt.Sprintf("Патч успешно применён! Бэкап сохранён в %s", backupPath),
+		"backup_path": backupPath,
+		"file_path":   filePath,
+	})
 }
