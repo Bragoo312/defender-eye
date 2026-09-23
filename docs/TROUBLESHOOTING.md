@@ -115,3 +115,23 @@
    sudo chmod 640 /var/lib/defender-eye/defender.db*
    ```
 2. SQLite работает в режиме WAL, поэтому в директории должны создаваться временные файлы `defender.db-wal` и `defender.db-shm`. Системный пользователь `defender-eye` обязан иметь право записи в родительскую директорию.
+
+---
+
+## 5. Искажение IP-адресов и портов в eBPF модуле (Endianness Mismatch)
+
+### Симптом
+IP-адрес атакующего в событиях отображается развернутым задом наперёд (например, вместо `85.217.140.10` подставляется `10.140.217.85`), а порт `23` считывается как `5888`.
+
+### Причина
+В C-программе eBPF (`pkg/ebpfmonitors/bpf/network_monitor.bpf.c`) вызовы `bpf_ntohl()` / `bpf_ntohs()` конвертируют сетевой порядок байт (Big-Endian) в хостовый (Little-Endian на x86_64). При этом Go-декодер ожидает Big-Endian (`binary.BigEndian.Uint32`).
+
+### Решение
+В C-коде `pkg/ebpfmonitors/bpf/network_monitor.bpf.c` необходимо передавать сетевые данные из пакетов азов как есть (Big-Endian) без вызовов `bpf_ntohl` / `bpf_ntohs`:
+```c
+-   e->saddr = bpf_ntohl(ip->saddr);
+-   e->dport = bpf_ntohs(tcp->dest);
++   e->saddr = ip->saddr;
++   e->dport = tcp->dest;
+```
+После пересборки eBPF C-компонента Go-декодер с `binary.BigEndian` правильно прочитает и IP-адреса, и номера портов.
