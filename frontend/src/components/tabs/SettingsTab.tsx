@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react';
 import type { Settings } from '../../types';
-import { getSettings, updateSettings, getGeoIPStatus, updateGeoIP, type GeoIPStatus } from '../../api/client';
+import {
+  getSettings,
+  updateSettings,
+  getGeoIPStatus,
+  updateGeoIP,
+  getAgents,
+  pushAgentConfig,
+  type GeoIPStatus,
+  type AgentInfo,
+} from '../../api/client';
 import {
   Settings as SettingsIcon,
   Key,
@@ -13,6 +22,9 @@ import {
   Globe,
   Download,
   AlertCircle,
+  Send,
+  ShieldCheck,
+  Sliders,
 } from 'lucide-react';
 
 interface SettingsTabProps {
@@ -31,6 +43,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [geoMsg, setGeoMsg] = useState<string | null>(null);
   const [geoErr, setGeoErr] = useState<string | null>(null);
 
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('server-01');
+  const [agentSshMode, setAgentSshMode] = useState<'blocker' | 'logger' | 'disabled'>('blocker');
+  const [agentSshTries, setAgentSshTries] = useState<number>(5);
+  const [agentSshWindow, setAgentSshWindow] = useState<number>(300);
+  const [agentSshBan, setAgentSshBan] = useState<number>(900);
+  const [agentSshPattern, setAgentSshPattern] = useState<string>(
+    '(?:\\bFailed (?:password|publickey) for (?:invalid user )?\\S+ from|\\bmaximum authentication attempts exceeded for \\S+ from|\\bDisconnecting authenticating user (?:invalid user )?\\S+|\\bConnection closed by authenticating user (?:invalid user )?\\S+) (?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3})'
+  );
+  const [agentWebReconMode, setAgentWebReconMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
+  const [agentWebBruteMode, setAgentWebBruteMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
+  const [agentDbMode, setAgentDbMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
+  const [agentWhitelist, setAgentWhitelist] = useState<string>('');
+  const [pushingConfig, setPushingConfig] = useState(false);
+  const [pushMsg, setPushMsg] = useState<string | null>(null);
+  const [pushErr, setPushErr] = useState<string | null>(null);
+
   useEffect(() => {
     getSettings()
       .then((data) => {
@@ -42,7 +71,104 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
     getGeoIPStatus()
       .then((data) => setGeoStatus(data))
       .catch((err) => console.error('Failed to get GeoIP status:', err));
+
+    getAgents()
+      .then((res) => {
+        if (res.agents && res.agents.length > 0) {
+          setAgents(res.agents);
+          const first = res.agents[0];
+          setSelectedAgentId(first.config_id || 'server-01');
+          if (first.config && first.config.config) {
+            const c = first.config.config;
+            if (c.ssh_monitor) {
+              if (c.ssh_monitor.mode) setAgentSshMode(c.ssh_monitor.mode);
+              if (c.ssh_monitor.tries) setAgentSshTries(c.ssh_monitor.tries);
+              if (c.ssh_monitor.window_seconds) setAgentSshWindow(c.ssh_monitor.window_seconds);
+              if (c.ssh_monitor.ban_seconds) setAgentSshBan(c.ssh_monitor.ban_seconds);
+              if (c.ssh_monitor.pattern) setAgentSshPattern(c.ssh_monitor.pattern);
+            }
+            if (c.web_recon_monitor?.mode) setAgentWebReconMode(c.web_recon_monitor.mode);
+            if (c.web_brute_monitor?.mode) setAgentWebBruteMode(c.web_brute_monitor.mode);
+            if (c.database_monitor?.mode) setAgentDbMode(c.database_monitor.mode);
+            if (Array.isArray(c.ip_whitelist)) setAgentWhitelist(c.ip_whitelist.join(', '));
+          }
+        }
+      })
+      .catch((err) => console.error('Failed to fetch agents:', err));
   }, []);
+
+  const handlePushConfig = async () => {
+    setPushingConfig(true);
+    setPushMsg(null);
+    setPushErr(null);
+
+    const payload = {
+      config: {
+        exporter: {
+          enabled: true,
+          endpoint_address: 'ws://127.0.0.1:8080/ws/agent',
+          user_id: 'admin',
+          config_id: selectedAgentId || 'server-01',
+          endpoint_rsa_public_key: settings?.open_defender_key || '',
+        },
+        blocked_ips_database: '/var/open-defender/blocked.db',
+        ip_whitelist: agentWhitelist
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        ssh_monitor: {
+          mode: agentSshMode,
+          engine: 'syslog',
+          log_path: '/var/log/auth.log',
+          unit_name: 'sshd',
+          tries: agentSshTries,
+          window_seconds: agentSshWindow,
+          ban_seconds: agentSshBan,
+          pattern: agentSshPattern,
+        },
+        web_recon_monitor: {
+          mode: agentWebReconMode,
+          engine: 'syslog',
+          log_path: '/var/log/nginx/access.log',
+          unit_name: 'nginx',
+          tries: 10,
+          window_seconds: 60,
+          ban_seconds: 600,
+          pattern: '(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}) - - \\x5b.*?\\x5d "(?:GET|POST|HEAD) \\S+ HTTP/\\d\\.\\d" 40[34]',
+        },
+        web_brute_monitor: {
+          mode: agentWebBruteMode,
+          engine: 'syslog',
+          log_path: '/var/log/nginx/access.log',
+          unit_name: 'nginx',
+          tries: 5,
+          window_seconds: 120,
+          ban_seconds: 900,
+          pattern: '(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}) - - \\x5b.*?\\x5d "POST (?:/login|/wp-login\\.php|/admin) HTTP/\\d\\.\\d" 40[13]',
+        },
+        database_monitor: {
+          mode: agentDbMode,
+          engine: 'journal',
+          log_path: '/var/log/postgresql/postgresql-16-main.log',
+          unit_name: 'postgresql',
+          tries: 5,
+          window_seconds: 300,
+          ban_seconds: 900,
+          pattern: 'host=(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}).*FATAL:\\s+password authentication failed for user',
+        },
+      },
+    };
+
+    try {
+      const res = await pushAgentConfig(selectedAgentId || 'server-01', payload);
+      setPushMsg(res.message || 'Конфигурация успешно отправлена на агент по WebSocket!');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Ошибка отправки конфигурации';
+      setPushErr(message);
+    } finally {
+      setPushingConfig(false);
+    }
+  };
 
   const handleSaveSettings = async () => {
     setSaving(true);
@@ -104,7 +230,7 @@ ssh_monitor:
   tries: 5
   window_seconds: 300
   ban_seconds: 900
-  pattern: 'Failed password for (?:invalid user )?\\S+ from (?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3})'
+  pattern: '(?:\bFailed (?:password|publickey) for (?:invalid user )?\\S+ from|\bmaximum authentication attempts exceeded for \\S+ from|\bDisconnecting authenticating user (?:invalid user )?\\S+|\bConnection closed by authenticating user (?:invalid user )?\\S+) (?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3})'
 
 # Монитор веб-сканирования (поиск скрытых путей/админок)
 web_recon_monitor:
@@ -364,6 +490,220 @@ ebpf_monitors:
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Panel 2.5: Interactive Agent Configuration Management & E2EE Push */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-5">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-cyan-400" />
+            <span>Управление конфигурацией агента Open Defender (E2EE Push)</span>
+          </span>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            WEBSOCKET REALTIME
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-300 font-sans leading-relaxed">
+          Настройте режим защиты, регулярные выражения и лимиты попыток входа прямо из панели. Изменения
+          мгновенно отправляются на подключённый агент Open Defender по шифрованному каналу WebSocket.
+        </p>
+
+        {agents.length > 0 && (
+          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-4">
+            <div className="text-xs text-slate-400">Выберите агент для настройки:</div>
+            <select
+              value={selectedAgentId}
+              onChange={(e) => {
+                setSelectedAgentId(e.target.value);
+                const found = agents.find((a) => a.config_id === e.target.value);
+                if (found?.config?.config) {
+                  const c = found.config.config;
+                  if (c.ssh_monitor) {
+                    if (c.ssh_monitor.mode) setAgentSshMode(c.ssh_monitor.mode);
+                    if (c.ssh_monitor.tries) setAgentSshTries(c.ssh_monitor.tries);
+                    if (c.ssh_monitor.window_seconds) setAgentSshWindow(c.ssh_monitor.window_seconds);
+                    if (c.ssh_monitor.ban_seconds) setAgentSshBan(c.ssh_monitor.ban_seconds);
+                    if (c.ssh_monitor.pattern) setAgentSshPattern(c.ssh_monitor.pattern);
+                  }
+                  if (c.web_recon_monitor?.mode) setAgentWebReconMode(c.web_recon_monitor.mode);
+                  if (c.web_brute_monitor?.mode) setAgentWebBruteMode(c.web_brute_monitor.mode);
+                  if (c.database_monitor?.mode) setAgentDbMode(c.database_monitor.mode);
+                  if (Array.isArray(c.ip_whitelist)) setAgentWhitelist(c.ip_whitelist.join(', '));
+                }
+              }}
+              className="bg-slate-950 text-cyan-400 text-xs font-mono border border-slate-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-cyan-500"
+            >
+              {agents.map((a) => (
+                <option key={a.config_id} value={a.config_id}>
+                  {a.config_id} ({a.connected ? '🟢 Онлайн' : '⚪ Офлайн'})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
+          {/* SSH Monitor Form */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+            <div className="text-slate-200 font-semibold flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              <span>Монитор SSH (ssh_monitor)</span>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Режим работы:</label>
+              <select
+                value={agentSshMode}
+                onChange={(e) => setAgentSshMode(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              >
+                <option value="blocker">blocker (Автоматическая блокировка IP в iptables/nftables)</option>
+                <option value="logger">logger (Только журналирование без бана)</option>
+                <option value="disabled">disabled (Отключен)</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-slate-400 mb-1">Попыток:</label>
+                <input
+                  type="number"
+                  value={agentSshTries}
+                  onChange={(e) => setAgentSshTries(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-cyan-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Окно (сек):</label>
+                <input
+                  type="number"
+                  value={agentSshWindow}
+                  onChange={(e) => setAgentSshWindow(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-cyan-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Бан (сек):</label>
+                <input
+                  type="number"
+                  value={agentSshBan}
+                  onChange={(e) => setAgentSshBan(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-cyan-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">
+                Универсальное регулярное выражение (Regex Pattern):
+              </label>
+              <textarea
+                value={agentSshPattern}
+                onChange={(e) => setAgentSshPattern(e.target.value)}
+                rows={3}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-500 leading-relaxed"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Поддерживает пароли, публичные ключи, `PasswordAuthentication no` и `maximum authentication attempts exceeded`.
+              </p>
+            </div>
+          </div>
+
+          {/* Other Monitors & Whitelist Form */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+            <div className="text-slate-200 font-semibold flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-emerald-400" />
+              <span>Дополнительные мониторы и Whitelist</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-slate-400 mb-1">Web Recon:</label>
+                <select
+                  value={agentWebReconMode}
+                  onChange={(e) => setAgentWebReconMode(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-200 font-mono text-[11px]"
+                >
+                  <option value="blocker">blocker</option>
+                  <option value="logger">logger</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Web Brute:</label>
+                <select
+                  value={agentWebBruteMode}
+                  onChange={(e) => setAgentWebBruteMode(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-200 font-mono text-[11px]"
+                >
+                  <option value="blocker">blocker</option>
+                  <option value="logger">logger</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Database:</label>
+                <select
+                  value={agentDbMode}
+                  onChange={(e) => setAgentDbMode(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-200 font-mono text-[11px]"
+                >
+                  <option value="blocker">blocker</option>
+                  <option value="logger">logger</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Белый список IP (IP Whitelist):</label>
+              <input
+                type="text"
+                placeholder="192.168.1.1, 10.0.0.1"
+                value={agentWhitelist}
+                onChange={(e) => setAgentWhitelist(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-emerald-400 font-mono text-xs focus:outline-none focus:border-emerald-500"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                IP-адреса через запятую, которые никогда не будут заблокированы подсистемой бана.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {pushMsg && (
+          <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2 text-xs">
+            <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{pushMsg}</span>
+          </div>
+        )}
+
+        {pushErr && (
+          <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 flex items-center gap-2 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{pushErr}</span>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handlePushConfig}
+          disabled={pushingConfig}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {pushingConfig ? (
+            <>
+              <RotateCw className="w-4 h-4 animate-spin" />
+              <span>Шифрование и отправка конфигурации по WebSocket...</span>
+            </>
+          ) : (
+            <>
+              <Send className="w-4 h-4" />
+              <span>Отправить конфигурацию на агент по WebSocket (set_config)</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Panel 3: Open Defender E2EE Integration & Config */}

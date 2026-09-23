@@ -110,10 +110,13 @@ func TestOpenDefenderRealProtocolCompatibility(t *testing.T) {
 	norm := normalizer.NewNormalizer(nil)
 
 	// 1. Create Server with in-memory generated keys
-	server, err := NewServer("", "", norm, sink)
+	server, err := NewServer("", "", norm, sink, nil)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
+
+	// Seed pre-existing configuration for test-vps-01 agent
+	_ = server.PushConfig("test-vps-01", json.RawMessage(`{"config":{"exporter":{"enabled":true}}}`))
 
 	// 2. Wrap in test HTTP server
 	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -21,6 +21,7 @@ import (
 	"github.com/Bragoo312/defender-eye/internal/geoip"
 	"github.com/Bragoo312/defender-eye/internal/model"
 	"github.com/Bragoo312/defender-eye/internal/normalizer"
+	"github.com/Bragoo312/defender-eye/internal/opendedefender"
 	"github.com/Bragoo312/defender-eye/internal/simulator"
 	"github.com/gorilla/websocket"
 )
@@ -89,26 +90,28 @@ func (h *Hub) BroadcastStats(stats model.DashboardStats) {
 }
 
 type Server struct {
-	cfg         *config.Config
-	db          *database.DB
-	norm        *normalizer.Normalizer
-	sim         *simulator.Simulator
-	hub         *Hub
-	staticFS    fs.FS
-	openDefKey  string
-	geoResolver *geoip.Resolver
+	cfg           *config.Config
+	db            *database.DB
+	norm          *normalizer.Normalizer
+	sim           *simulator.Simulator
+	hub           *Hub
+	staticFS      fs.FS
+	openDefKey    string
+	geoResolver   *geoip.Resolver
+	openDefServer *opendedefender.Server
 }
 
-func NewServer(cfg *config.Config, db *database.DB, norm *normalizer.Normalizer, sim *simulator.Simulator, hub *Hub, staticFS fs.FS, openDefKey string, geoResolver *geoip.Resolver) *Server {
+func NewServer(cfg *config.Config, db *database.DB, norm *normalizer.Normalizer, sim *simulator.Simulator, hub *Hub, staticFS fs.FS, openDefKey string, geoResolver *geoip.Resolver, openDefServer *opendedefender.Server) *Server {
 	return &Server{
-		cfg:         cfg,
-		db:          db,
-		norm:        norm,
-		sim:         sim,
-		hub:         hub,
-		staticFS:    staticFS,
-		openDefKey:  openDefKey,
-		geoResolver: geoResolver,
+		cfg:           cfg,
+		db:            db,
+		norm:          norm,
+		sim:           sim,
+		hub:           hub,
+		staticFS:      staticFS,
+		openDefKey:    openDefKey,
+		geoResolver:   geoResolver,
+		openDefServer: openDefServer,
 	}
 }
 
@@ -133,6 +136,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/settings", s.handleSettings)
 	mux.HandleFunc("/api/v1/geoip/status", s.handleGeoIPStatus)
 	mux.HandleFunc("/api/v1/geoip/update", s.handleGeoIPUpdate)
+	mux.HandleFunc("/api/v1/opendedefender/agents", s.handleGetAgents)
+	mux.HandleFunc("/api/v1/opendedefender/agents/push", s.handlePushAgentConfig)
 
 	// WebSocket for frontend
 	mux.HandleFunc("/ws/events", s.handleWS)
@@ -578,6 +583,57 @@ func (s *Server) handleGeoIPUpdate(w http.ResponseWriter, r *http.Request) {
 		"message": "База данных GeoIP успешно обновлена и подключена на лету",
 		"size_mb": fmt.Sprintf("%.1f", sizeMB),
 		"path":    targetPath,
+	})
+}
+
+func (s *Server) handleGetAgents(w http.ResponseWriter, r *http.Request) {
+	if s.openDefServer == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"enabled": false,
+			"agents":  []interface{}{},
+		})
+		return
+	}
+	agents := s.openDefServer.GetAgents()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"enabled": true,
+		"agents":  agents,
+	})
+}
+
+func (s *Server) handlePushAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.openDefServer == nil {
+		http.Error(w, "Open Defender listener is disabled", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		ConfigID string          `json:"config_id"`
+		Config   json.RawMessage `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.ConfigID == "" {
+		http.Error(w, "config_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.openDefServer.PushConfig(req.ConfigID, req.Config); err != nil {
+		http.Error(w, "Failed to push config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":    "ok",
+		"message":   "Конфигурация успешно отправлена на агент по WebSocket",
+		"config_id": req.ConfigID,
 	})
 }
 

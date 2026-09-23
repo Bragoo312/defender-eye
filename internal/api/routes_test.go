@@ -18,7 +18,7 @@ func TestHandleGeoIPStatus(t *testing.T) {
 		},
 	}
 	resolver := geoip.NewResolver("")
-	server := NewServer(cfg, nil, nil, nil, NewHub(), nil, "test-key", resolver)
+	server := NewServer(cfg, nil, nil, nil, NewHub(), nil, "test-key", resolver, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/geoip/status", nil)
 	rr := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestHandleGeoIPStatus(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
-	server := NewServer(&config.Config{}, nil, nil, nil, NewHub(), nil, "", nil)
+	server := NewServer(&config.Config{}, nil, nil, nil, NewHub(), nil, "", nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	rr := httptest.NewRecorder()

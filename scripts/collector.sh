@@ -25,7 +25,7 @@ fi
 
 parse_line() {
   local line="$1"
-  if echo "$line" | grep -qE "Failed password for (invalid user )?[^ ]+ from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
+  if echo "$line" | grep -qE "(Failed (password|publickey) for|maximum authentication attempts exceeded for|Disconnecting authenticating user|Connection closed by authenticating user)"; then
     local ip=$(echo "$line" | grep -oE "from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $2}')
     local user=$(echo "$line" | sed -n 's/.*Failed password for \(invalid user \)\?\([^ ]*\) from.*/\2/p')
     local port=$(echo "$line" | grep -oE "port [0-9]+" | awk '{print $2}')

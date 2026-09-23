@@ -118,6 +118,7 @@ func main() {
 			cfg.OpenDefender.PublicKeyPath,
 			norm,
 			sink,
+			db,
 		)
 		if err != nil {
 			log.Printf("[OpenDefender] Warning: failed to start E2EE agent listener: %v", err)
@@ -159,7 +160,7 @@ func main() {
 	}
 
 	// 9. Setup HTTP Server and API Routes
-	apiServer := api.NewServer(cfg, db, norm, sim, hub, staticFS, openDefKey, geoResolver)
+	apiServer := api.NewServer(cfg, db, norm, sim, hub, staticFS, openDefKey, geoResolver, openDefServer)
 	router := apiServer.Routes()
 
 	// If Open Defender is enabled, mount its WS endpoint onto the router (supporting /ws/agent and /ws/collector aliases)

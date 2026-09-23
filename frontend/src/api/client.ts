@@ -167,3 +167,34 @@ export async function updateGeoIP(): Promise<{ status: string; message: string; 
   }
   return res.json();
 }
+
+export interface AgentInfo {
+  config_id: string;
+  user_id?: string;
+  agent_version?: string;
+  connected: boolean;
+  remote_addr?: string;
+  config?: any;
+}
+
+export async function getAgents(): Promise<{ enabled: boolean; agents: AgentInfo[] }> {
+  const res = await fetch(`${BASE_URL}/api/v1/opendedefender/agents`);
+  if (!res.ok) throw new Error('Failed to fetch Open Defender agents');
+  return res.json();
+}
+
+export async function pushAgentConfig(configID: string, configData: any): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/opendedefender/agents/push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      config_id: configID,
+      config: configData,
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Не удалось отправить конфигурацию на агент');
+  }
+  return res.json();
+}

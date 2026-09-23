@@ -14,9 +14,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Bragoo312/defender-eye/internal/database"
 	"github.com/Bragoo312/defender-eye/internal/model"
 	"github.com/Bragoo312/defender-eye/internal/normalizer"
 	"github.com/gorilla/websocket"
@@ -39,6 +41,7 @@ type Server struct {
 	publicKey    *rsa.PublicKey
 	normalizer   *normalizer.Normalizer
 	sink         EventSink
+	db           *database.DB
 	sessions     map[*session]bool
 	agentConfigs map[string]json.RawMessage
 	mu           sync.Mutex
@@ -80,26 +83,68 @@ type AlertRaisedPayload struct {
 	} `json:"events"`
 }
 
-func NewServer(privKeyPath, pubKeyPath string, norm *normalizer.Normalizer, sink EventSink) (*Server, error) {
+type AgentInfo struct {
+	ConfigID     string          `json:"config_id"`
+	UserID       string          `json:"user_id"`
+	AgentVersion string          `json:"agent_version"`
+	Connected    bool            `json:"connected"`
+	RemoteAddr   string          `json:"remote_addr"`
+	Config       json.RawMessage `json:"config,omitempty"`
+}
+
+func NewServer(privKeyPath, pubKeyPath string, norm *normalizer.Normalizer, sink EventSink, db *database.DB) (*Server, error) {
 	privKey, pubKey, err := loadOrGenerateKeys(privKeyPath, pubKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading/generating server RSA keys: %w", err)
 	}
 
-	return &Server{
+	s := &Server{
 		privateKey:   privKey,
 		publicKey:    pubKey,
 		normalizer:   norm,
 		sink:         sink,
+		db:           db,
 		sessions:     make(map[*session]bool),
 		agentConfigs: make(map[string]json.RawMessage),
-	}, nil
+	}
+
+	// Restore persistent agent configs from SQLite DB
+	if db != nil {
+		if stored, err := db.GetAllAgentConfigs(); err == nil {
+			for id, raw := range stored {
+				s.agentConfigs[id] = json.RawMessage(raw)
+			}
+			if len(stored) > 0 {
+				log.Printf("[OpenDefender] Restored %d agent configurations from database", len(stored))
+			}
+		}
+	}
+
+	return s, nil
+}
+
+func (s *Server) hasAgentConfig(configID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg, ok := s.agentConfigs[configID]
+	if !ok || len(cfg) == 0 {
+		return false
+	}
+	str := string(cfg)
+	// Check if it's a non-empty, valid configuration
+	return strings.Contains(str, `"config"`) && !strings.Contains(str, `{"config":{}}`)
 }
 
 func (s *Server) saveAgentConfig(configID string, cfg json.RawMessage) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.agentConfigs[configID] = cfg
+	s.mu.Unlock()
+
+	if s.db != nil {
+		if err := s.db.SaveAgentConfig(configID, string(cfg)); err != nil {
+			log.Printf("[OpenDefender] Warning saving agent config %s to DB: %v", configID, err)
+		}
+	}
 }
 
 func (s *Server) getAgentConfig(configID string) json.RawMessage {
@@ -108,7 +153,75 @@ func (s *Server) getAgentConfig(configID string) json.RawMessage {
 	if cfg, ok := s.agentConfigs[configID]; ok && len(cfg) > 0 {
 		return cfg
 	}
-	return json.RawMessage(`{"config":{}}`)
+	return nil
+}
+
+func (s *Server) GetAgents() []AgentInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := make([]AgentInfo, 0)
+	connectedIDs := make(map[string]*session)
+
+	for sess := range s.sessions {
+		if sess.configID != "" {
+			connectedIDs[sess.configID] = sess
+		}
+	}
+
+	for id, rawCfg := range s.agentConfigs {
+		info := AgentInfo{
+			ConfigID: id,
+			Config:   rawCfg,
+		}
+		if sess, connected := connectedIDs[id]; connected {
+			info.Connected = true
+			info.UserID = sess.userID
+			info.AgentVersion = sess.agentVer
+			if sess.conn != nil {
+				info.RemoteAddr = sess.conn.RemoteAddr().String()
+			}
+		}
+		result = append(result, info)
+	}
+
+	// Add any connected sessions whose config hasn't been saved yet
+	for id, sess := range connectedIDs {
+		if _, exists := s.agentConfigs[id]; !exists {
+			info := AgentInfo{
+				ConfigID:     id,
+				UserID:       sess.userID,
+				AgentVersion: sess.agentVer,
+				Connected:    true,
+			}
+			if sess.conn != nil {
+				info.RemoteAddr = sess.conn.RemoteAddr().String()
+			}
+			result = append(result, info)
+		}
+	}
+
+	return result
+}
+
+func (s *Server) PushConfig(configID string, newConfigRaw json.RawMessage) error {
+	s.saveAgentConfig(configID, newConfigRaw)
+
+	s.mu.Lock()
+	var targetSess *session
+	for sess := range s.sessions {
+		if sess.configID == configID {
+			targetSess = sess
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	if targetSess != nil {
+		log.Printf("[OpenDefender-WS] Pushing updated config to active agent %s via WebSocket...", configID)
+		return targetSess.sendSetConfig(time.Now().UnixNano())
+	}
+	return nil
 }
 
 func (s *Server) GetPublicKeyBase64() string {
@@ -226,8 +339,17 @@ func (sess *session) handleEnvelope(env Envelope) error {
 		log.Printf("[OpenDefender-WS] Agent connected: version=%s, user=%s, config_id=%s",
 			sess.agentVer, sess.userID, sess.configID)
 
-		// Must reply with config/set_config within 30 seconds
-		return sess.sendSetConfig(env.TaskID)
+		// Fix Handshake Overwrite Issue:
+		// If we already have a valid stored config for this agent, send set_config.
+		// Otherwise, send get_config so we fetch the agent's real running configuration
+		// without overwriting /etc/open-defender/config.yaml with empty defaults!
+		if sess.server.hasAgentConfig(sess.configID) {
+			log.Printf("[OpenDefender-WS] Restoring stored config for agent %s...", sess.configID)
+			return sess.sendSetConfig(env.TaskID)
+		}
+
+		log.Printf("[OpenDefender-WS] New session for agent %s. Requesting live config via get_config...", sess.configID)
+		return sess.sendGetConfig(env.TaskID)
 
 	case "system/ack":
 		var ack struct {
@@ -298,6 +420,9 @@ func (sess *session) sendSetConfig(taskID int64) error {
 	}
 
 	payloadRaw := sess.server.getAgentConfig(sess.configID)
+	if len(payloadRaw) == 0 {
+		return errors.New("refusing to send empty set_config payload")
+	}
 
 	replyEnv := Envelope{
 		Version:         2,

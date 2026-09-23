@@ -145,6 +145,12 @@ func (db *DB) initSchema() error {
 		value TEXT NOT NULL,
 		updated_at DATETIME NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS opendedefender_agent_configs (
+		config_id TEXT PRIMARY KEY,
+		payload TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
 	`
 
 	_, err := db.conn.Exec(schema)
@@ -629,4 +635,47 @@ func (db *DB) ApplyRetention(days int) error {
 	}
 
 	return nil
+}
+
+func (db *DB) SaveAgentConfig(configID string, payload string) error {
+	if db == nil || db.conn == nil {
+		return nil
+	}
+	query := `
+	INSERT INTO opendedefender_agent_configs (config_id, payload, updated_at)
+	VALUES (?, ?, ?)
+	ON CONFLICT(config_id) DO UPDATE SET
+		payload = excluded.payload,
+		updated_at = excluded.updated_at;
+	`
+	_, err := db.conn.Exec(query, configID, payload, time.Now().UTC())
+	return err
+}
+
+func (db *DB) GetAgentConfig(configID string) (string, error) {
+	if db == nil || db.conn == nil {
+		return "", sql.ErrNoRows
+	}
+	var payload string
+	err := db.conn.QueryRow("SELECT payload FROM opendedefender_agent_configs WHERE config_id = ?", configID).Scan(&payload)
+	return payload, err
+}
+
+func (db *DB) GetAllAgentConfigs() (map[string]string, error) {
+	result := make(map[string]string)
+	if db == nil || db.conn == nil {
+		return result, nil
+	}
+	rows, err := db.conn.Query("SELECT config_id, payload FROM opendedefender_agent_configs")
+	if err != nil {
+		return result, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, payload string
+		if err := rows.Scan(&id, &payload); err == nil {
+			result[id] = payload
+		}
+	}
+	return result, nil
 }
