@@ -52,14 +52,29 @@ export function App() {
     }
   }, []);
 
+  const [pollIntervalMs, setPollIntervalMs] = useState<number>(() => {
+    const saved = localStorage.getItem('defender_telemetry_rate');
+    return saved ? parseInt(saved, 10) : 3000;
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('defender_telemetry_rate');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (parsed > 0 && parsed !== pollIntervalMs) {
+        setPollIntervalMs(parsed);
+      }
+    }
+  }, [activeTab, pollIntervalMs]);
+
   useEffect(() => {
     fetchStats();
     fetchSettings();
 
-    // Periodic stats sync every 10 seconds
-    const interval = setInterval(fetchStats, 10000);
+    // Configurable telemetry polling interval (1s, 2s, 3s, 5s, 10s)
+    const interval = setInterval(fetchStats, pollIntervalMs);
     return () => clearInterval(interval);
-  }, [fetchStats, fetchSettings]);
+  }, [fetchStats, fetchSettings, pollIntervalMs]);
 
   // Subscribe to SSE real-time security events
   useEffect(() => {

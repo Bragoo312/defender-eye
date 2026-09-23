@@ -214,14 +214,14 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       }
     });
 
-    return Array.from(nodeMap.values()).slice(0, 300);
+    return Array.from(nodeMap.values()).slice(0, 3000);
   }, [events]);
 
   // Animated laser arcs
   const arcsRef = useRef<AttackArc[]>([]);
 
   useEffect(() => {
-    const activeNodes = attackNodes.slice(0, 40);
+    const activeNodes = attackNodes.slice(0, 80);
     arcsRef.current = activeNodes.map((n) => {
       let color = '#38bdf8'; // sky
       if (n.severity === 'critical') color = '#f43f5e'; // rose
@@ -299,10 +299,11 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
         }
       }
 
-      // Draw Continents (Offline Vector Paths)
+      // Draw Continents & Country Borders (Offline Vector Paths)
       ctx.fillStyle = 'rgba(30, 41, 59, 0.65)';
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
       ctx.lineWidth = 1.2 * Math.min(2, Math.max(0.8, zoom));
+      ctx.setLineDash([3, 3]); // Neon dashed cyber radar borders!
 
       CONTINENTS.forEach((polygon) => {
         if (polygon.length === 0) return;
@@ -318,6 +319,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
         ctx.fill();
         ctx.stroke();
       });
+      ctx.setLineDash([]); // Reset line dash for laser arcs and nodes
 
       // Target Defended Server Position
       const [targetX, targetY] = toXY(TARGET_SERVER.lat, TARGET_SERVER.lon);

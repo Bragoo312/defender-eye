@@ -1,36 +1,81 @@
 import { useState, useEffect } from 'react';
-import type { PortStat } from '../../types';
-import { getPorts } from '../../api/client';
+import type { PortStat, ListeningPort } from '../../types';
+import { getPorts, getListeningPorts } from '../../api/client';
 import {
   Radio,
   RotateCw,
   ShieldCheck,
   Flame,
+  AlertTriangle,
+  Lock,
+  Unlock,
+  CheckCircle,
+  HelpCircle,
+  Server,
 } from 'lucide-react';
 
 export const PortsTab: React.FC = () => {
   const [ports, setPorts] = useState<PortStat[]>([]);
+  const [listeningPorts, setListeningPorts] = useState<ListeningPort[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchPorts = async () => {
+  const fetchAllPortData = async () => {
     setLoading(true);
     try {
-      const data = await getPorts();
-      setPorts(data || []);
+      const [reconData, listeningData] = await Promise.all([
+        getPorts().catch(() => []),
+        getListeningPorts().catch(() => ({ ports: [], count: 0 })),
+      ]);
+      setPorts(reconData || []);
+      setListeningPorts(listeningData?.ports || []);
     } catch (err) {
-      console.error('Failed to load ports:', err);
+      console.error('Failed to load ports data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPorts();
+    fetchAllPortData();
   }, []);
 
   const totalScans = ports.reduce((acc, p) => acc + p.count, 0);
 
-  // Common port explanations
+  const riskBadge = (risk: string) => {
+    switch (risk) {
+      case 'critical':
+        return {
+          label: 'КРИТИЧНО',
+          style: 'bg-rose-950/90 text-rose-300 border-rose-800 animate-pulse',
+          icon: <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />,
+        };
+      case 'high':
+        return {
+          label: 'ВЫСОКИЙ РИСК',
+          style: 'bg-amber-950/90 text-amber-300 border-amber-800',
+          icon: <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />,
+        };
+      case 'medium':
+        return {
+          label: 'ВНИМАНИЕ',
+          style: 'bg-yellow-950/90 text-yellow-300 border-yellow-800',
+          icon: <Unlock className="w-3.5 h-3.5 text-yellow-400 shrink-0" />,
+        };
+      case 'safe':
+        return {
+          label: 'БЕЗОПАСНО',
+          style: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
+          icon: <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />,
+        };
+      default:
+        return {
+          label: 'ИНФО',
+          style: 'bg-slate-800 text-slate-300 border-slate-700',
+          icon: <HelpCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" />,
+        };
+    }
+  };
+
   const portDescriptions: Record<number, string> = {
     22: 'SSH Remote Shell — популярная цель для перебора паролей и ключей',
     80: 'HTTP Web Traffic — поиск уязвимостей CMS, открытых админок, phpMyAdmin',
@@ -45,8 +90,8 @@ export const PortsTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner */}
+    <div className="space-y-6 pb-12 font-sans">
+      {/* Header Banner */}
       <div className="p-4 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
@@ -54,40 +99,127 @@ export const PortsTab: React.FC = () => {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-              <span>Анализ сканирования сетевых портов</span>
+              <span>Аудит открытых портов и сканирования сети</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-                PORT RECONNAISSANCE
+                ACTIVE PORT SECURITY AUDIT
               </span>
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Мониторинг попыток обнаружения открытых сервисов и зондирования периметра VPS
+              Мониторинг активных сетевых сокетов сервера и анализ внешнего зондирования портов
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-xs font-mono text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
-            Всего обращений: <span className="text-cyan-400 font-bold">{totalScans.toLocaleString()}</span>
+            Открытых портов на сервере: <span className="text-cyan-400 font-bold">{listeningPorts.length}</span>
           </div>
           <button
-            onClick={fetchPorts}
+            onClick={fetchAllPortData}
             disabled={loading}
-            className="p-2 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 hover:text-cyan-400 transition-all"
-            title="Обновить"
+            className="p-2 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 hover:text-cyan-400 transition-all cursor-pointer"
+            title="Обновить данные портов"
           >
-            <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Main Ports Grid */}
+      {/* SECTION 1: ACTIVE LISTENING PORTS ON SERVER (NEW FEATURE) */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-semibold text-slate-100">
+              Все открытые порты на сервере и экспертные рекомендации
+            </h3>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
+            Автоскан: /proc/net/tcp
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 bg-[#0b101d] text-slate-400 font-mono uppercase tracking-wider text-[11px]">
+                <th className="py-3 px-4 font-semibold">Порт / Протокол</th>
+                <th className="py-3 px-4 font-semibold">Служба / Процесс</th>
+                <th className="py-3 px-4 font-semibold">Интерфейс (Bind IP)</th>
+                <th className="py-3 px-4 font-semibold">Уровень риска</th>
+                <th className="py-3 px-4 font-semibold">Рекомендация и почему открыт</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {listeningPorts.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-mono text-xs">
+                    Загрузка списка открытых портов сервера...
+                  </td>
+                </tr>
+              ) : (
+                listeningPorts.map((lp, i) => {
+                  const rBadge = riskBadge(lp.risk_level);
+                  const isPublic = lp.bind_address === '0.0.0.0' || lp.bind_address === '::';
+
+                  return (
+                    <tr key={`${lp.port}-${lp.protocol}-${i}`} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="py-3 px-4 font-mono">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-bold">
+                            :{lp.port}
+                          </span>
+                          <span className="text-[10px] uppercase text-slate-400">{lp.protocol}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-200">{lp.service}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{lp.process_name}</div>
+                      </td>
+
+                      <td className="py-3 px-4 font-mono">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                            isPublic
+                              ? 'bg-rose-950/40 text-rose-300 border-rose-800/80'
+                              : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/80'
+                          }`}
+                        >
+                          {isPublic ? <Unlock className="w-3 h-3 text-rose-400" /> : <Lock className="w-3 h-3 text-emerald-400" />}
+                          <span>{lp.bind_address}</span>
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wide ${rBadge.style}`}
+                        >
+                          {rBadge.icon}
+                          <span>{rBadge.label}</span>
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 leading-relaxed text-slate-300 max-w-md">
+                        {lp.recommendation}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* SECTION 2: ATTACKED PORTS RANKING & ADVICE */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Scanned Ports Ranking (2 cols) */}
         <div className="lg:col-span-2 p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
               <Flame className="w-4 h-4 text-amber-400" />
-              <span>Рейтинг атакуемых портов</span>
+              <span>Рейтинг внешне атакуемых портов</span>
             </span>
             <span className="text-xs text-slate-400 font-mono">Объем зондирования</span>
           </div>
@@ -95,7 +227,7 @@ export const PortsTab: React.FC = () => {
           <div className="mt-4 space-y-4">
             {ports.length === 0 ? (
               <div className="py-12 text-center text-xs text-slate-400 font-mono">
-                Данные о сканировании портов отсутствуют
+                Данные о внешнем сканировании портов отсутствуют
               </div>
             ) : (
               ports.map((p, idx) => {

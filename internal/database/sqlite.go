@@ -295,16 +295,16 @@ func (db *DB) GetEvents(limit, offset int, filters EventFilters) ([]model.Securi
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 1000 {
-		limit = 1000
+	if limit > 5000 {
+		limit = 5000
 	}
 
 	var where []string
 	var args []interface{}
 
 	if filters.Monitor != "" {
-		where = append(where, "monitor = ?")
-		args = append(args, filters.Monitor)
+		where = append(where, "(monitor = ? OR event_type = ?)")
+		args = append(args, filters.Monitor, filters.Monitor)
 	}
 	if filters.Severity != "" {
 		where = append(where, "severity = ?")

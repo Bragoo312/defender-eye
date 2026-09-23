@@ -1,4 +1,4 @@
-import type { DashboardStats, SecurityEvent, IPInfo, BlockInfo, SystemMetric, PortStat, Settings } from '../types';
+import type { DashboardStats, SecurityEvent, IPInfo, BlockInfo, SystemMetric, PortStat, Settings, ListeningPort } from '../types';
 
 const BASE_URL = '';
 
@@ -243,5 +243,11 @@ export async function applyEbpfPatch(): Promise<{ status: string; message: strin
     const errText = await res.text();
     throw new Error(errText || 'Не удалось применить патч eBPF');
   }
+  return res.json();
+}
+
+export async function getListeningPorts(): Promise<{ ports: ListeningPort[]; count: number }> {
+  const res = await fetch(`${BASE_URL}/api/v1/ports/listening`);
+  if (!res.ok) throw new Error('Failed to fetch listening ports');
   return res.json();
 }

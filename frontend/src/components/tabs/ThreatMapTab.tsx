@@ -27,7 +27,7 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
     if (viewMode === 'all' || selectedCountry) {
       setLoadingHistory(true);
       getEvents({
-        limit: 500,
+        limit: 5000,
         country: selectedCountry || undefined,
       })
         .then((res) => {

@@ -102,3 +102,13 @@ export interface Settings {
   bind_address: string;
   default_ban_seconds: number;
 }
+
+export interface ListeningPort {
+  port: number;
+  protocol: string;
+  bind_address: string;
+  service: string;
+  process_name: string;
+  risk_level: 'critical' | 'high' | 'medium' | 'safe' | 'info';
+  recommendation: string;
+}

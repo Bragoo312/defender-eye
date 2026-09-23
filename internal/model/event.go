@@ -120,3 +120,14 @@ type DashboardStats struct {
 	RecentBlocks     []BlockInfo     `json:"recent_blocks"`
 	CurrentSystem    SystemMetric    `json:"current_system"`
 }
+
+// ListeningPort represents an active open network socket on the server with security audit details
+type ListeningPort struct {
+	Port           int    `json:"port"`
+	Protocol       string `json:"protocol"`       // "tcp", "tcp6", "udp"
+	BindAddress    string `json:"bind_address"`   // "0.0.0.0", "127.0.0.1", "::", "::1"
+	Service        string `json:"service"`        // "SSH", "Redis", "HTTP", etc.
+	ProcessName    string `json:"process_name"`   // "sshd", "redis-server", etc.
+	RiskLevel      string `json:"risk_level"`     // "critical", "high", "medium", "safe", "info"
+	Recommendation string `json:"recommendation"` // Expert advice on why & how to secure
+}

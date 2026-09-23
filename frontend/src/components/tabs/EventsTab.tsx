@@ -112,12 +112,14 @@ export const EventsTab: React.FC<EventsTabProps> = ({ onSelectEvent, onSelectIp 
             className="bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-slate-300 px-3 py-2 focus:outline-none focus:border-cyan-500/50"
           >
             <option value="">Все типы атак</option>
-            <option value="ssh_brute">🔑 Подбор паролей SSH (порт 22)</option>
+            <option value="ssh_brute">🔑 Подбор паролей SSH (SSH Brute)</option>
+            <option value="ssh_monitor">🔐 Монитор безопасности SSH</option>
             <option value="web_recon">🌐 Поиск уязвимостей сайта (Web Recon)</option>
             <option value="web_brute">🔐 Подбор веб-паролей (Web Brute)</option>
             <option value="db_brute">🗄️ Взлом баз данных (PostgreSQL/MySQL)</option>
             <option value="port_scan">🚪 Разведка сетевых портов (Port Scan)</option>
-            <option value="resource_overload">⚡ Аномальная перегрузка</option>
+            <option value="network_antirecon">📡 eBPF Сетевая анти-разведка</option>
+            <option value="resource_overload">⚡ Аномальная перегрузка (DDoS)</option>
           </select>
 
           {/* Action Filter */}

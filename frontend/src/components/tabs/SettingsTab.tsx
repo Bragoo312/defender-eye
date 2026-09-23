@@ -46,6 +46,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const [retentionDays, setRetentionDays] = useState(30);
+  const [telemetryRate, setTelemetryRate] = useState<string>(() => {
+    return localStorage.getItem('defender_telemetry_rate') || '3000';
+  });
+
+  const handleTelemetryRateChange = (val: string) => {
+    setTelemetryRate(val);
+    localStorage.setItem('defender_telemetry_rate', val);
+  };
+
   const [copiedTunnel, setCopiedTunnel] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [geoStatus, setGeoStatus] = useState<GeoIPStatus | null>(null);
@@ -464,6 +473,26 @@ ebpf_monitors:
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
                 Фоновый сборщик мусора каждые 6 часов очищает устаревшие записи, не блокируя запись.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80">
+              <label className="block text-slate-300 font-semibold mb-1.5">
+                Частота опроса системной телеметрии:
+              </label>
+              <select
+                value={telemetryRate}
+                onChange={(e) => handleTelemetryRateChange(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-slate-200 text-xs font-mono focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value="1000">⚡ 1 секунда (Реальное время / Быстрый мониторинг)</option>
+                <option value="2000">⚡ 2 секунды</option>
+                <option value="3000">⚡ 3 секунды (Рекомендуется)</option>
+                <option value="5000">⚡ 5 секунд</option>
+                <option value="10000">⚡ 10 секунд (Экономия ресурсов CPU)</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Параметр задает скорость обновления графиков загрузки CPU, RAM, диска и сетевого трафика.
               </p>
             </div>
 

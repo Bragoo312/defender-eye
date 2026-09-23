@@ -24,6 +24,7 @@ import (
 	"github.com/Bragoo312/defender-eye/internal/normalizer"
 	"github.com/Bragoo312/defender-eye/internal/opendedefender"
 	"github.com/Bragoo312/defender-eye/internal/simulator"
+	"github.com/Bragoo312/defender-eye/internal/system"
 	"github.com/gorilla/websocket"
 )
 
@@ -133,6 +134,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/ip/action", s.handleIPAction)
 	mux.HandleFunc("/api/v1/blocks", s.handleBlocks)
 	mux.HandleFunc("/api/v1/ports", s.handlePorts)
+	mux.HandleFunc("/api/v1/ports/listening", s.handleListeningPorts)
 	mux.HandleFunc("/api/v1/ssh", s.handleSSH)
 	mux.HandleFunc("/api/v1/metrics/system", s.handleSystemMetrics)
 	mux.HandleFunc("/api/v1/settings", s.handleSettings)
@@ -479,6 +481,18 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ports)
+}
+
+func (s *Server) handleListeningPorts(w http.ResponseWriter, r *http.Request) {
+	ports, err := system.GetListeningPorts()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ports": ports,
+		"count": len(ports),
+	})
 }
 
 func (s *Server) handleSSH(w http.ResponseWriter, r *http.Request) {

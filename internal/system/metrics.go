@@ -57,8 +57,15 @@ func (c *Collector) collectFallback(m *model.SystemMetric) {
 	m.RAMUsedBytes = memStats.Alloc * 4
 	m.SwapTotalBytes = 1024 * 1024 * 1024
 	m.SwapUsedBytes = 0
-	m.DiskTotalBytes = 50 * 1024 * 1024 * 1024
-	m.DiskUsedBytes = 12 * 1024 * 1024 * 1024
+
+	if total, used, err := getDiskSpace("C:\\"); err == nil && total > 0 {
+		m.DiskTotalBytes = total
+		m.DiskUsedBytes = used
+	} else {
+		m.DiskTotalBytes = 50 * 1024 * 1024 * 1024
+		m.DiskUsedBytes = 12 * 1024 * 1024 * 1024
+	}
+
 	m.LoadAvg1 = 0.15
 	m.LoadAvg5 = 0.22
 	m.LoadAvg15 = 0.18
@@ -181,5 +188,11 @@ func (c *Collector) collectLinux(m *model.SystemMetric) {
 		}
 		c.lastNetRX = currentRX
 		c.lastNetTX = currentTX
+	}
+
+	// 5. Disk space from root "/"
+	if total, used, err := getDiskSpace("/"); err == nil && total > 0 {
+		m.DiskTotalBytes = total
+		m.DiskUsedBytes = used
 	}
 }
