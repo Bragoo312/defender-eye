@@ -212,7 +212,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
-		"version": "1.0.0",
+		"version": "1.3.0",
 		"time":    time.Now().UTC(),
 		"demo":    demo,
 	})

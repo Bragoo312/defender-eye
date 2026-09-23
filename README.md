@@ -76,10 +76,10 @@
 
 ```bash
 # 1. Скачайте пакет под вашу архитектуру:
-curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.0.0/defender-eye_1.0.0_amd64.deb
+curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.3.0/defender-eye_1.3.0_amd64.deb
 
 # 2. Установите одной командой:
-sudo apt install ./defender-eye_1.0.0_amd64.deb
+sudo apt install ./defender-eye_1.3.0_amd64.deb
 ```
 *Пакет автоматически создаст системного пользователя `defender-eye`, настроит конфигурацию в `/etc/defender-eye/config.yaml` и запустит службу `systemd`.*
 

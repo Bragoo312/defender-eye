@@ -20,14 +20,14 @@
 
 ```bash
 # 1. Скачайте пакет (для x86_64 / amd64):
-curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.0.0/defender-eye_1.0.0_amd64.deb
+curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.3.0/defender-eye_1.3.0_amd64.deb
 
 # 2. Установите:
-sudo apt install ./defender-eye_1.0.0_amd64.deb
+sudo apt install ./defender-eye_1.3.0_amd64.deb
 # или:
-# sudo dpkg -i defender-eye_1.0.0_amd64.deb
+# sudo dpkg -i defender-eye_1.3.0_amd64.deb
 ```
-*(Для ARM64 серверов используйте `defender-eye_1.0.0_arm64.deb`)*
+*(Для ARM64 серверов используйте `defender-eye_1.3.0_arm64.deb`)*
 
 Пакет автоматически создаст пользователя `defender-eye`, необходимые директории, службу `systemd` и сразу запустит её.
 
