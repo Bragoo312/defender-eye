@@ -25,6 +25,10 @@ import {
   Send,
   ShieldCheck,
   Sliders,
+  Activity,
+  Search,
+  RotateCcw,
+  Shield,
 } from 'lucide-react';
 
 interface SettingsTabProps {
@@ -56,10 +60,55 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [agentWebReconMode, setAgentWebReconMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
   const [agentWebBruteMode, setAgentWebBruteMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
   const [agentDbMode, setAgentDbMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
-  const [agentWhitelist, setAgentWhitelist] = useState<string>('');
+  const [agentWhitelist, setAgentWhitelist] = useState<string>('127.0.0.1');
+
+  // eBPF Antirecon state
+  const [agentEbpfMode, setAgentEbpfMode] = useState<'blocker' | 'logger' | 'disabled'>('logger');
+  const [agentEbpfPortsCount, setAgentEbpfPortsCount] = useState<number>(5);
+  const [agentEbpfBlacklistPorts, setAgentEbpfBlacklistPorts] = useState<string>('23, 3389, 8080');
+  const [agentEbpfWhitelistPorts, setAgentEbpfWhitelistPorts] = useState<string>('22, 80, 443');
+
+  // Resource Monitor state
+  const [agentResourceEnabled, setAgentResourceEnabled] = useState<boolean>(true);
+  const [agentResourceCpuWarn, setAgentResourceCpuWarn] = useState<number>(85);
+  const [agentResourceRamWarn, setAgentResourceRamWarn] = useState<number>(90);
+  const [agentResourceSnapshot, setAgentResourceSnapshot] = useState<boolean>(true);
+
   const [pushingConfig, setPushingConfig] = useState(false);
   const [pushMsg, setPushMsg] = useState<string | null>(null);
   const [pushErr, setPushErr] = useState<string | null>(null);
+
+  const applyConfigToForm = (c: any) => {
+    if (!c) return;
+    if (c.ssh_monitor) {
+      if (c.ssh_monitor.mode) setAgentSshMode(c.ssh_monitor.mode);
+      if (c.ssh_monitor.engine) setAgentSshEngine(c.ssh_monitor.engine === 'journal' ? 'journal' : 'syslog');
+      if (c.ssh_monitor.tries) setAgentSshTries(c.ssh_monitor.tries);
+      if (c.ssh_monitor.window_seconds) setAgentSshWindow(c.ssh_monitor.window_seconds);
+      if (c.ssh_monitor.ban_seconds) setAgentSshBan(c.ssh_monitor.ban_seconds);
+      if (c.ssh_monitor.pattern) setAgentSshPattern(c.ssh_monitor.pattern);
+    }
+    if (c.web_recon_monitor?.mode) setAgentWebReconMode(c.web_recon_monitor.mode);
+    if (c.web_brute_monitor?.mode) setAgentWebBruteMode(c.web_brute_monitor.mode);
+    if (c.database_monitor?.mode) setAgentDbMode(c.database_monitor.mode);
+    if (Array.isArray(c.ip_whitelist)) setAgentWhitelist(c.ip_whitelist.join(', '));
+
+    if (c.ebpf_monitors?.network_antirecon) {
+      const e = c.ebpf_monitors.network_antirecon;
+      if (e.mode) setAgentEbpfMode(e.mode);
+      if (e.ports_count) setAgentEbpfPortsCount(e.ports_count);
+      if (Array.isArray(e.blacklist_ports)) setAgentEbpfBlacklistPorts(e.blacklist_ports.join(', '));
+      if (Array.isArray(e.whitelist_ports)) setAgentEbpfWhitelistPorts(e.whitelist_ports.join(', '));
+    }
+
+    if (c.resource_monitor) {
+      const r = c.resource_monitor;
+      if (typeof r.enabled === 'boolean') setAgentResourceEnabled(r.enabled);
+      if (r.cpu_usage_persentage?.alert) setAgentResourceCpuWarn(r.cpu_usage_persentage.alert);
+      if (r.ram_usage_persentage?.alert) setAgentResourceRamWarn(r.ram_usage_persentage.alert);
+      if (typeof r.output_top_snaphot_dir === 'string') setAgentResourceSnapshot(Boolean(r.output_top_snaphot_dir));
+    }
+  };
 
   useEffect(() => {
     getSettings()
@@ -80,19 +129,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
           const first = res.agents[0];
           setSelectedAgentId(first.config_id || 'server-01');
           if (first.config && first.config.config) {
-            const c = first.config.config;
-            if (c.ssh_monitor) {
-              if (c.ssh_monitor.mode) setAgentSshMode(c.ssh_monitor.mode);
-              if (c.ssh_monitor.engine) setAgentSshEngine(c.ssh_monitor.engine === 'journal' ? 'journal' : 'syslog');
-              if (c.ssh_monitor.tries) setAgentSshTries(c.ssh_monitor.tries);
-              if (c.ssh_monitor.window_seconds) setAgentSshWindow(c.ssh_monitor.window_seconds);
-              if (c.ssh_monitor.ban_seconds) setAgentSshBan(c.ssh_monitor.ban_seconds);
-              if (c.ssh_monitor.pattern) setAgentSshPattern(c.ssh_monitor.pattern);
-            }
-            if (c.web_recon_monitor?.mode) setAgentWebReconMode(c.web_recon_monitor.mode);
-            if (c.web_brute_monitor?.mode) setAgentWebBruteMode(c.web_brute_monitor.mode);
-            if (c.database_monitor?.mode) setAgentDbMode(c.database_monitor.mode);
-            if (Array.isArray(c.ip_whitelist)) setAgentWhitelist(c.ip_whitelist.join(', '));
+            applyConfigToForm(first.config.config);
           }
         }
       })
@@ -157,6 +194,36 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
           window_seconds: 300,
           ban_seconds: 900,
           pattern: 'host=(?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3}).*FATAL:\\s+password authentication failed for user',
+        },
+        resource_monitor: {
+          enabled: agentResourceEnabled,
+          cpu_usage_persentage: {
+            warning: agentResourceCpuWarn - 20 > 10 ? agentResourceCpuWarn - 20 : 60,
+            alert: agentResourceCpuWarn,
+          },
+          ram_usage_persentage: {
+            warning: agentResourceRamWarn - 20 > 10 ? agentResourceRamWarn - 20 : 60,
+            alert: agentResourceRamWarn,
+          },
+          traffic_usage_mbs: { warning: 0, alert: 0 },
+          disk_usage_iops: { warning: 0, alert: 0 },
+          output_top_snaphot_dir: agentResourceSnapshot ? '/var/log/open-defender/' : '',
+        },
+        ebpf_monitors: {
+          network_antirecon: {
+            mode: agentEbpfMode,
+            ports_count: agentEbpfPortsCount,
+            window_seconds: 300,
+            ban_seconds: 900,
+            whitelist_ports: agentEbpfWhitelistPorts
+              .split(',')
+              .map((p) => parseInt(p.trim(), 10))
+              .filter((n) => !isNaN(n)),
+            blacklist_ports: agentEbpfBlacklistPorts
+              .split(',')
+              .map((p) => parseInt(p.trim(), 10))
+              .filter((n) => !isNaN(n)),
+          },
         },
       },
     };
@@ -546,11 +613,26 @@ ebpf_monitors:
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
-          {/* SSH Monitor Form */}
-          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
-            <div className="text-slate-200 font-semibold flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-cyan-400" />
-              <span>Монитор SSH (ssh_monitor)</span>
+          {/* Module 1: SSH Protection */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-slate-200 font-semibold flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                <span>1. 🔑 Защита SSH (Входы и брутфорс)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setAgentSshPattern(
+                    '(?:\\bFailed (?:password|publickey) for (?:invalid user )?\\S+ from|\\bmaximum authentication attempts exceeded for \\S+ from|\\bDisconnecting authenticating user (?:invalid user )?\\S+|\\bConnection closed by authenticating user (?:invalid user )?\\S+) (?P<ip>(?:\\d{1,3}\\.){3}\\d{1,3})'
+                  )
+                }
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono"
+                title="Сбросить на универсальное выражение"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Сбросить</span>
+              </button>
             </div>
 
             <div>
@@ -560,9 +642,9 @@ ebpf_monitors:
                 onChange={(e) => setAgentSshMode(e.target.value as any)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
               >
-                <option value="blocker">blocker (Автоматическая блокировка IP в iptables/nftables)</option>
-                <option value="logger">logger (Только журналирование без бана)</option>
-                <option value="disabled">disabled (Отключен)</option>
+                <option value="blocker">blocker — Автоблокировка IP в iptables/nftables</option>
+                <option value="logger">logger — Только детекция и журнал без бана</option>
+                <option value="disabled">disabled — Монитор выключен</option>
               </select>
             </div>
 
@@ -574,7 +656,7 @@ ebpf_monitors:
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-500"
               >
                 <option value="syslog">syslog — /var/log/auth.log (Debian 10/11, Ubuntu 20.04/22.04)</option>
-                <option value="journal">journal — systemd-journald (Debian 12+ Bookworm, Ubuntu 24.04+ без rsyslog)</option>
+                <option value="journal">journal — systemd-journald (Debian 12+ Bookworm, Ubuntu 24.04+)</option>
               </select>
             </div>
 
@@ -609,31 +691,146 @@ ebpf_monitors:
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">
-                Универсальное регулярное выражение (Regex Pattern):
-              </label>
+              <label className="block text-slate-400 mb-1">Универсальный Regex Pattern:</label>
               <textarea
                 value={agentSshPattern}
                 onChange={(e) => setAgentSshPattern(e.target.value)}
-                rows={3}
+                rows={2}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 font-mono text-[11px] text-cyan-300 focus:outline-none focus:border-cyan-500 leading-relaxed"
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Поддерживает пароли, публичные ключи, `PasswordAuthentication no` и `maximum authentication attempts exceeded`.
-              </p>
             </div>
           </div>
 
-          {/* Other Monitors & Whitelist Form */}
-          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
-            <div className="text-slate-200 font-semibold flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-emerald-400" />
-              <span>Дополнительные мониторы и Whitelist</span>
+          {/* Module 2: eBPF Network Antirecon */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-slate-200 font-semibold flex items-center gap-2">
+                <Globe className="w-4 h-4 text-emerald-400" />
+                <span>2. 🌐 Детектор сканеров портов (eBPF)</span>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+                XDP / eBPF
+              </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-slate-400 mb-1">Режим работы:</label>
+              <select
+                value={agentEbpfMode}
+                onChange={(e) => setAgentEbpfMode(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              >
+                <option value="logger">logger — Детекция разведки из коробки (Без бана)</option>
+                <option value="blocker">blocker — Блокировка сканеров (iptables/nftables)</option>
+                <option value="disabled">disabled — Монитор выключен</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Порог затронутых закрытых портов (ports_count):</label>
+              <input
+                type="number"
+                value={agentEbpfPortsCount}
+                onChange={(e) => setAgentEbpfPortsCount(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-emerald-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Порты-ловушки (Honeypot blacklist_ports):</label>
+              <input
+                type="text"
+                placeholder="23, 3389, 8080"
+                value={agentEbpfBlacklistPorts}
+                onChange={(e) => setAgentEbpfBlacklistPorts(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-amber-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">Касание ловушки мгновенно подсвечивает бота на карте.</p>
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Порты-исключения (whitelist_ports):</label>
+              <input
+                type="text"
+                placeholder="22, 80, 443"
+                value={agentEbpfWhitelistPorts}
+                onChange={(e) => setAgentEbpfWhitelistPorts(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-300 font-mono text-xs focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+          </div>
+
+          {/* Module 3: Resource & Anti-Mining Monitor */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-slate-200 font-semibold flex items-center gap-2">
+                <Activity className="w-4 h-4 text-purple-400" />
+                <span>3. 📈 Монитор перегрузки и майнинга</span>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agentResourceEnabled}
+                  onChange={(e) => setAgentResourceEnabled(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-0 cursor-pointer"
+                />
+                <span>Включен</span>
+              </label>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-slate-400 mb-1">
+                <span>Порог тревоги CPU:</span>
+                <span className="font-mono text-purple-300">{agentResourceCpuWarn}%</span>
+              </div>
+              <input
+                type="range"
+                min="50"
+                max="98"
+                value={agentResourceCpuWarn}
+                onChange={(e) => setAgentResourceCpuWarn(Number(e.target.value))}
+                className="w-full accent-purple-500 bg-slate-950 rounded-lg cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between text-slate-400 mb-1">
+                <span>Порог тревоги RAM:</span>
+                <span className="font-mono text-purple-300">{agentResourceRamWarn}%</span>
+              </div>
+              <input
+                type="range"
+                min="50"
+                max="98"
+                value={agentResourceRamWarn}
+                onChange={(e) => setAgentResourceRamWarn(Number(e.target.value))}
+                className="w-full accent-purple-500 bg-slate-950 rounded-lg cursor-pointer"
+              />
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agentResourceSnapshot}
+                  onChange={(e) => setAgentResourceSnapshot(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-0 cursor-pointer"
+                />
+                <span>Автоснимок процессов (Process Snapshot) при атаке</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Module 4 & 5: Web Recon & Web Brute */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="text-slate-200 font-semibold flex items-center gap-2">
+              <Search className="w-4 h-4 text-blue-400" />
+              <span>4. 🕸️ Детектор веб-сканеров и брутфорса</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 mb-1">Web Recon:</label>
+                <label className="block text-slate-400 mb-1">Web Recon (сканеры .git/.env):</label>
                 <select
                   value={agentWebReconMode}
                   onChange={(e) => setAgentWebReconMode(e.target.value as any)}
@@ -644,8 +841,9 @@ ebpf_monitors:
                   <option value="disabled">disabled</option>
                 </select>
               </div>
+
               <div>
-                <label className="block text-slate-400 mb-1">Web Brute:</label>
+                <label className="block text-slate-400 mb-1">Web Brute (/wp-login):</label>
                 <select
                   value={agentWebBruteMode}
                   onChange={(e) => setAgentWebBruteMode(e.target.value as any)}
@@ -656,31 +854,55 @@ ebpf_monitors:
                   <option value="disabled">disabled</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Database:</label>
-                <select
-                  value={agentDbMode}
-                  onChange={(e) => setAgentDbMode(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-200 font-mono text-[11px]"
-                >
-                  <option value="blocker">blocker</option>
-                  <option value="logger">logger</option>
-                  <option value="disabled">disabled</option>
-                </select>
-              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              Анализирует <code className="text-cyan-400">/var/log/nginx/access.log</code> на аномальные ошибочные запросы (403/404/401).
+            </p>
+          </div>
+
+          {/* Module 6: Database Monitor */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="text-slate-200 font-semibold flex items-center gap-2">
+              <Database className="w-4 h-4 text-amber-400" />
+              <span>5. 🗄️ Монитор баз данных (PostgreSQL / MySQL)</span>
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Белый список IP (IP Whitelist):</label>
+              <label className="block text-slate-400 mb-1">Режим работы:</label>
+              <select
+                value={agentDbMode}
+                onChange={(e) => setAgentDbMode(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs"
+              >
+                <option value="blocker">blocker — Автоблокировка IP при подборе паролей СУБД</option>
+                <option value="logger">logger — Только журнал аномалий без бана</option>
+                <option value="disabled">disabled — Монитор выключен</option>
+              </select>
+            </div>
+
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              Отслеживает несанкционированные попытки авторизации в логах СУБД.
+            </p>
+          </div>
+
+          {/* Module 7: Whitelist */}
+          <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3 shadow-sm">
+            <div className="text-slate-200 font-semibold flex items-center gap-2">
+              <Shield className="w-4 h-4 text-emerald-400" />
+              <span>6. 🛡️ Белый список IP (IP Whitelist)</span>
+            </div>
+
+            <div>
               <input
                 type="text"
-                placeholder="192.168.1.1, 10.0.0.1"
+                placeholder="192.168.1.1, 10.0.0.1, 127.0.0.1"
                 value={agentWhitelist}
                 onChange={(e) => setAgentWhitelist(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-emerald-400 font-mono text-xs focus:outline-none focus:border-emerald-500"
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                IP-адреса через запятую, которые никогда не будут заблокированы подсистемой бана.
+              <p className="text-[10px] text-slate-500 mt-1.5">
+                Доверенные IP-адреса через запятую, защищённые от любых типов блокировок.
               </p>
             </div>
           </div>
