@@ -155,6 +155,27 @@ ssh -L 8080:127.0.0.1:8080 user@ip-вашего-сервера
 
 ---
 
+## 🔧 Решение частых проблем
+
+> [!IMPORTANT]
+> **Исправление порядка байт в eBPF модуле (IP-адреса и порты задом наперед):**
+> 
+> Если при интеграции eBPF-драйвера `network_antirecon` в Open Defender реальный IP-адрес входящего пакета (например `85.217.140.10`) считывается в Go как `10.140.217.85`, а порт `23` в ловушках `blacklist_ports` считывается как `5888`:
+> 
+> **Причина:** В C-программе eBPF (`network_monitor.bpf.c`) функции `bpf_ntohl()` / `bpf_ntohs()` преобразуют сетевой порядок байт (Big-Endian) в хостовый (Little-Endian). Однако Go-декодер парсит структуры через `binary.BigEndian`, из-за чего происходит повторный разворот байт.
+> 
+> **Решение:** В C-коде eBPF передавайте сетевые данные напрямую без вызова `bpf_ntohl()` / `bpf_ntohs()`:
+> ```c
+> // В pkg/ebpfmonitors/bpf/network_monitor.bpf.c
+> -   e->saddr = bpf_ntohl(ip->saddr);
+> -   e->dport = bpf_ntohs(tcp->dest);
+> +   e->saddr = ip->saddr;
+> +   e->dport = tcp->dest;
+> ```
+> Подробное руководство по диагностике доступно в [**TROUBLESHOOTING.md**](docs/TROUBLESHOOTING.md).
+
+---
+
 ## 📚 Документация
 
 * 📖 [**Руководство по установке (INSTALL.md)**](docs/INSTALL.md)
