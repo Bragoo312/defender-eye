@@ -151,6 +151,17 @@ mkdir -p /var/log/defender-eye
 mkdir -p /usr/share/defender-eye/geoip
 mkdir -p /etc/defender-eye
 
+# Добавление пользователя в группы для доступа к системным логам
+usermod -aG adm,systemd-journal defender-eye 2>/dev/null || true
+
+# Настройка sudoers правила для безопасного перезапуска open-defender
+if [ -d /etc/sudoers.d ]; then
+    cat << 'SUDEOF' > /etc/sudoers.d/defender-eye
+defender-eye ALL=(ALL) NOPASSWD: /bin/systemctl restart open-defender, /usr/bin/systemctl restart open-defender
+SUDEOF
+    chmod 440 /etc/sudoers.d/defender-eye
+fi
+
 # Настройка прав
 chown -R defender-eye:defender-eye /var/lib/defender-eye /var/log/defender-eye /usr/share/defender-eye /etc/defender-eye
 chmod 750 /var/lib/defender-eye /var/log/defender-eye
@@ -172,10 +183,20 @@ if [ -d /run/systemd/system ]; then
     fi
 fi
 
+# Определение SSH порта и пользователя
+SSH_PORT="22"
+if [ -f /etc/ssh/sshd_config ]; then
+    P=$(grep -iE "^\s*Port\s+[0-9]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n1 || echo "")
+    [ -n "$P" ] && SSH_PORT="$P"
+fi
+SSH_FLAG=""
+[ "$SSH_PORT" != "22" ] && SSH_FLAG="-p $SSH_PORT "
+SSH_USER="${SUDO_USER:-root}"
+
 echo "=========================================================="
 echo " [OK] Defender Eye v${VERSION} успешно установлен!"
 echo " Служба запущена: sudo systemctl status defender-eye"
-echo " Доступ через SSH-туннель: ssh -L 8080:127.0.0.1:8080 user@server"
+echo " Доступ через SSH-туннель: ssh ${SSH_FLAG}-L 8080:127.0.0.1:8080 ${SSH_USER}@server"
 echo " Веб-интерфейс: http://localhost:8080"
 echo "=========================================================="
 
@@ -212,6 +233,7 @@ fi
 
 if [ "$1" = "purge" ]; then
     rm -rf /var/log/defender-eye
+    rm -f /etc/sudoers.d/defender-eye
 fi
 
 exit 0

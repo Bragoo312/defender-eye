@@ -79,21 +79,16 @@ func DefaultConfig() *Config {
 func LoadConfig(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
-	if path == "" {
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// If file does not exist, return defaults
-			return cfg, nil
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading config file %s: %w", path, err)
 		}
-		return nil, fmt.Errorf("reading config file %s: %w", path, err)
-	}
-
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parsing config yaml %s: %w", path, err)
+		if err == nil {
+			if err := yaml.Unmarshal(data, cfg); err != nil {
+				return nil, fmt.Errorf("parsing config yaml %s: %w", path, err)
+			}
+		}
 	}
 
 	// Ensure directory for database exists

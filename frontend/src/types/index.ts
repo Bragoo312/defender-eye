@@ -81,6 +81,15 @@ export interface PortStat {
   count: number;
 }
 
+export interface ServerLocation {
+  ip: string;
+  city: string;
+  country_code: string;
+  country_name: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface DashboardStats {
   events_total_24h: number;
   events_total_7d: number;
@@ -92,6 +101,9 @@ export interface DashboardStats {
   recent_events: SecurityEvent[];
   recent_blocks: BlockInfo[];
   current_system: SystemMetric;
+  server_location?: ServerLocation;
+  ssh_port?: number;
+  ssh_service_name?: string;
 }
 
 export interface Settings {

@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -179,24 +181,30 @@ func main() {
 		})
 	}
 
+	// 10. Bind TCP Listener with Automatic Free Port Selection
+	listener, finalAddr, err := bindWithPortFallback(cfg.Server.BindAddress)
+	if err != nil {
+		log.Fatalf("[Main] Failed to bind any listening address: %v", err)
+	}
+	cfg.Server.BindAddress = finalAddr
+
 	httpSrv := &http.Server{
-		Addr:         cfg.Server.BindAddress,
 		Handler:      router,
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// 10. Start Server
+	// 11. Start Server
 	go func() {
-		log.Printf("[Main] Defender Eye listening on http://%s", cfg.Server.BindAddress)
-		log.Printf("[Main] Open via SSH tunnel: ssh -L 8080:%s user@server", cfg.Server.BindAddress)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("[Main] Defender Eye listening on http://%s", finalAddr)
+		log.Printf("[Main] Open via SSH tunnel: ssh -L <port>:%s user@server", finalAddr)
+		if err := httpSrv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("[Main] Server error: %v", err)
 		}
 	}()
 
-	// 11. Graceful Shutdown
+	// 12. Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -212,3 +220,61 @@ func main() {
 
 	log.Println("[Main] Defender Eye stopped cleanly.")
 }
+
+func bindWithPortFallback(bindAddr string) (net.Listener, string, error) {
+	host, portStr, err := net.SplitHostPort(bindAddr)
+	if err != nil {
+		if strings.HasPrefix(bindAddr, ":") {
+			host = ""
+			portStr = strings.TrimPrefix(bindAddr, ":")
+		} else {
+			host = "127.0.0.1"
+			portStr = "8080"
+		}
+	}
+
+	startPort, _ := strconv.Atoi(portStr)
+	if startPort <= 0 {
+		startPort = 8080
+	}
+
+	// 1. Try original requested address
+	targetAddr := fmt.Sprintf("%s:%d", host, startPort)
+	ln, err := net.Listen("tcp", targetAddr)
+	if err == nil {
+		return ln, targetAddr, nil
+	}
+
+	log.Printf("[Main] WARNING: Configured address %s is busy or unavailable (%v)", targetAddr, err)
+	log.Printf("[Main] Searching for an available free port...")
+
+	// 2. Scan fallback candidates: startPort+1 .. startPort+20, then common alt ports (8081, 8082, 8090, 8888, 9090)
+	candidatePorts := make([]int, 0, 30)
+	for p := startPort + 1; p <= startPort+20; p++ {
+		candidatePorts = append(candidatePorts, p)
+	}
+	for _, p := range []int{8081, 8082, 8083, 8090, 8888, 9090, 9091} {
+		candidatePorts = append(candidatePorts, p)
+	}
+
+	for _, port := range candidatePorts {
+		candidateAddr := fmt.Sprintf("%s:%d", host, port)
+		ln, err := net.Listen("tcp", candidateAddr)
+		if err == nil {
+			log.Printf("[Main] >>> Successfully auto-selected free port %d: http://%s <<<", port, candidateAddr)
+			return ln, candidateAddr, nil
+		}
+	}
+
+	// 3. Fallback to OS-assigned port (:0)
+	ephemeralAddr := fmt.Sprintf("%s:0", host)
+	ln, err = net.Listen("tcp", ephemeralAddr)
+	if err == nil {
+		actualAddr := ln.Addr().String()
+		log.Printf("[Main] >>> Successfully auto-selected OS ephemeral port: http://%s <<<", actualAddr)
+		return ln, actualAddr, nil
+	}
+
+	return nil, "", fmt.Errorf("unable to bind to any port: %w", err)
+}
+

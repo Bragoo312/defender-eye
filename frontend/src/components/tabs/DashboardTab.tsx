@@ -182,7 +182,12 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
-          <ThreatMap events={recentEvents} height={390} onSelectIp={onSelectIp} />
+          <ThreatMap
+            events={recentEvents}
+            height={390}
+            onSelectIp={onSelectIp}
+            targetServer={stats?.server_location}
+          />
         </div>
 
         {/* Top Attacking Countries */}

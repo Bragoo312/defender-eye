@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,6 +27,10 @@ type EventFilters struct {
 }
 
 func Open(dbPath string) (*DB, error) {
+	if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0755)
+	}
+
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite at %s: %w", dbPath, err)

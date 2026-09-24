@@ -107,6 +107,16 @@ type PortStat struct {
 	Count   int    `json:"count"`
 }
 
+// ServerLocation represents detected geographic coordinates and public IP of this server
+type ServerLocation struct {
+	IP          string  `json:"ip"`
+	City        string  `json:"city"`
+	CountryCode string  `json:"country_code"`
+	CountryName string  `json:"country_name"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+}
+
 // DashboardStats holds KPI and overview summaries for the dashboard
 type DashboardStats struct {
 	EventsTotal24h   int             `json:"events_total_24h"`
@@ -119,6 +129,9 @@ type DashboardStats struct {
 	RecentEvents     []SecurityEvent `json:"recent_events"`
 	RecentBlocks     []BlockInfo     `json:"recent_blocks"`
 	CurrentSystem    SystemMetric    `json:"current_system"`
+	ServerLocation   *ServerLocation `json:"server_location,omitempty"`
+	SSHPort          int             `json:"ssh_port"`
+	SSHServiceName   string          `json:"ssh_service_name"`
 }
 
 // ListeningPort represents an active open network socket on the server with security audit details

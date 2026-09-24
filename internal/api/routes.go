@@ -224,6 +224,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	loc := system.DetectServerLocation(s.geoResolver)
+	stats.ServerLocation = &loc
+	stats.SSHPort = system.GetSSHPort()
+	stats.SSHServiceName = system.GetSSHServiceName()
 	writeJSON(w, http.StatusOK, stats)
 }
 
@@ -1013,9 +1017,15 @@ func (s *Server) handleEbpfPatchApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Trigger restart of open-defender service if systemctl is available
-	cmd := exec.Command("systemctl", "restart", "open-defender")
+	cmd := exec.Command("sudo", "-n", "systemctl", "restart", "open-defender")
 	if err := cmd.Run(); err == nil {
-		successLog = append(successLog, "Перезапущена служба systemctl open-defender")
+		successLog = append(successLog, "Перезапущена служба open-defender через sudo")
+	} else {
+		// Fallback: direct systemctl if already running as root or without sudoers
+		cmdRoot := exec.Command("systemctl", "restart", "open-defender")
+		if errRoot := cmdRoot.Run(); errRoot == nil {
+			successLog = append(successLog, "Перезапущена служба systemctl open-defender")
+		}
 	}
 
 	// 4. Notify connected agent over WS if available

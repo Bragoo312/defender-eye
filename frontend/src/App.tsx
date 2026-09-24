@@ -183,6 +183,7 @@ export function App() {
               events={stats?.recent_events || []}
               topCountries={stats?.top_countries || []}
               onSelectIp={setSelectedIp}
+              targetServer={stats?.server_location}
             />
           )}
 
@@ -201,7 +202,11 @@ export function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsTab demoMode={demoMode} onToggleDemoMode={handleToggleDemoMode} />
+            <SettingsTab
+              demoMode={demoMode}
+              onToggleDemoMode={handleToggleDemoMode}
+              stats={stats}
+            />
           )}
         </main>
       </div>

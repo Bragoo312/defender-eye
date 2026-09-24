@@ -10,6 +10,15 @@ interface ThreatMapProps {
   className?: string;
   selectedCountry?: string | null;
   onResetCountryFilter?: () => void;
+  targetServer?: {
+    latitude?: number;
+    longitude?: number;
+    lat?: number;
+    lon?: number;
+    name?: string;
+    city?: string;
+    country_code?: string;
+  };
 }
 
 // Simplified continent & island landmass points [lat, lon] for 100% offline vector map
@@ -140,6 +149,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
   className = '',
   selectedCountry = null,
   onResetCountryFilter,
+  targetServer,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -326,7 +336,9 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       }
 
       // Target Defended Server Position
-      const [targetX, targetY] = toXY(TARGET_SERVER.lat, TARGET_SERVER.lon);
+      const sLat = targetServer?.lat ?? targetServer?.latitude ?? TARGET_SERVER.lat;
+      const sLon = targetServer?.lon ?? targetServer?.longitude ?? TARGET_SERVER.lon;
+      const [targetX, targetY] = toXY(sLat, sLon);
 
       // Laser Attack Arcs (Bézier curves)
       arcsRef.current.forEach((arc) => {
@@ -430,7 +442,10 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
       // VPS Label
       ctx.font = '10px monospace';
       ctx.fillStyle = '#22d3ee';
-      ctx.fillText('VPS TARGET', targetX + 10, targetY - 6);
+      const sLabel = targetServer?.city
+        ? `VPS: ${targetServer.city} (${targetServer.country_code || 'HOST'})`
+        : targetServer?.name || 'DEFENDED VPS';
+      ctx.fillText(sLabel, targetX + 10, targetY - 6);
 
       animId = requestAnimationFrame(render);
     };
@@ -440,7 +455,7 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [attackNodes, zoom, pan]);
+  }, [attackNodes, zoom, pan, targetServer]);
 
   // Handle Resize
   useEffect(() => {

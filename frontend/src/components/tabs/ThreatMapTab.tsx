@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ThreatMap } from '../ThreatMap';
-import type { SecurityEvent, CountryStat } from '../../types';
+import type { SecurityEvent, CountryStat, ServerLocation } from '../../types';
 import { getEvents } from '../../api/client';
 import { Globe, Radio, Crosshair, Layers, Zap, Loader2 } from 'lucide-react';
 
@@ -8,12 +8,14 @@ interface ThreatMapTabProps {
   events: SecurityEvent[];
   topCountries: CountryStat[];
   onSelectIp: (ip: string) => void;
+  targetServer?: ServerLocation;
 }
 
 export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
   events,
   topCountries,
   onSelectIp,
+  targetServer,
 }) => {
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'all' | 'live'>('all');
@@ -131,6 +133,7 @@ export const ThreatMapTab: React.FC<ThreatMapTabProps> = ({
         onSelectIp={onSelectIp}
         selectedCountry={selectedCountry}
         onResetCountryFilter={() => setSelectedCountry(null)}
+        targetServer={targetServer}
         className="w-full"
       />
 

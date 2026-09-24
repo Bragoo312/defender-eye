@@ -90,3 +90,41 @@ func parsePortFromFile(filePath string, re *regexp.Regexp) int {
 	}
 	return 0
 }
+
+// GetSSHServiceName detects whether systemd uses "ssh" (Debian/Ubuntu) or "sshd" (RHEL/CentOS/Fedora)
+func GetSSHServiceName() string {
+	// 1. Check Debian/Ubuntu systemd units
+	debianUnits := []string{
+		"/lib/systemd/system/ssh.service",
+		"/usr/lib/systemd/system/ssh.service",
+		"/etc/systemd/system/ssh.service",
+	}
+	for _, u := range debianUnits {
+		if fi, err := os.Stat(u); err == nil && !fi.IsDir() {
+			return "ssh"
+		}
+	}
+
+	// 2. Check RHEL/CentOS systemd units
+	rhelUnits := []string{
+		"/lib/systemd/system/sshd.service",
+		"/usr/lib/systemd/system/sshd.service",
+		"/etc/systemd/system/sshd.service",
+	}
+	for _, u := range rhelUnits {
+		if fi, err := os.Stat(u); err == nil && !fi.IsDir() {
+			return "sshd"
+		}
+	}
+
+	// 3. Fallback based on /etc/os-release
+	if data, err := os.ReadFile("/etc/os-release"); err == nil {
+		content := strings.ToLower(string(data))
+		if strings.Contains(content, "debian") || strings.Contains(content, "ubuntu") {
+			return "ssh"
+		}
+	}
+
+	return "sshd"
+}
+

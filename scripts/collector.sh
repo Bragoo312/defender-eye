@@ -23,13 +23,24 @@ elif [ -f /var/log/secure ]; then
   LOG_FILE="/var/log/secure"
 fi
 
+# Detect Server SSH Port (from SSH_PORT env or /etc/ssh/sshd_config)
+SERVER_SSH_PORT="${SSH_PORT:-}"
+if [ -z "$SERVER_SSH_PORT" ]; then
+  if [ -f /etc/ssh/sshd_config ]; then
+    SERVER_SSH_PORT=$(grep -iE "^\s*Port\s+[0-9]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n1 || echo "")
+  fi
+  if [ -z "$SERVER_SSH_PORT" ]; then
+    SERVER_SSH_PORT="22"
+  fi
+fi
+
 parse_line() {
   local line="$1"
   if echo "$line" | grep -qE "(Failed (password|publickey) for|maximum authentication attempts exceeded for|Disconnecting authenticating user|Connection closed by authenticating user)"; then
     local ip=$(echo "$line" | grep -oE "from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | awk '{print $2}')
     local user=$(echo "$line" | sed -n 's/.*Failed password for \(invalid user \)\?\([^ ]*\) from.*/\2/p')
-    local port=$(echo "$line" | grep -oE "port [0-9]+" | awk '{print $2}')
-    [ -z "$port" ] && port="22"
+    local client_port=$(echo "$line" | grep -oE "port [0-9]+" | awk '{print $2}')
+    [ -z "$client_port" ] && client_port="0"
 
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     local event_id=$(echo "${timestamp}-${ip}-${RANDOM}" | md5sum | awk '{print $1}')
@@ -43,8 +54,8 @@ parse_line() {
   "event_type": "ssh_brute",
   "severity": "high",
   "source_ip": "$ip",
-  "source_port": 0,
-  "dest_port": $port,
+  "source_port": $client_port,
+  "dest_port": $SERVER_SSH_PORT,
   "protocol": "tcp",
   "action": "alerted",
   "service": "ssh",
@@ -55,7 +66,7 @@ EOF
 )
     # Forward to Defender Eye
     curl -s -X POST -H "Content-Type: application/json" -d "$payload" "$API_URL" >/dev/null 2>&1 || true
-    echo "[$(date +'%T')] Detected SSH attempt: $user @ $ip (port $port)"
+    echo "[$(date +'%T')] Detected SSH attempt: $user @ $ip (port $SERVER_SSH_PORT, client port $client_port)"
   fi
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Settings } from '../../types';
+import type { Settings, DashboardStats } from '../../types';
 import {
   getSettings,
   updateSettings,
@@ -40,9 +40,10 @@ import {
 interface SettingsTabProps {
   demoMode: boolean;
   onToggleDemoMode: () => void;
+  stats?: DashboardStats | null;
 }
 
-export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemoMode }) => {
+export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemoMode, stats }) => {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const [retentionDays, setRetentionDays] = useState(30);
@@ -77,11 +78,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [agentDbMode, setAgentDbMode] = useState<'blocker' | 'logger' | 'disabled'>('disabled');
   const [agentWhitelist, setAgentWhitelist] = useState<string>('127.0.0.1');
 
+  // Dynamic port & service detection
+  const currentPort = typeof window !== 'undefined' && window.location.port ? window.location.port : '8080';
+  const sshPort = stats?.ssh_port || 22;
+  const sshServiceName = stats?.ssh_service_name || 'ssh';
+
   // eBPF Antirecon state
   const [agentEbpfMode, setAgentEbpfMode] = useState<'blocker' | 'logger' | 'disabled'>('logger');
   const [agentEbpfPortsCount, setAgentEbpfPortsCount] = useState<number>(5);
-  const [agentEbpfBlacklistPorts, setAgentEbpfBlacklistPorts] = useState<string>('23, 3389, 8080');
-  const [agentEbpfWhitelistPorts, setAgentEbpfWhitelistPorts] = useState<string>('22, 80, 443');
+  const [agentEbpfBlacklistPorts, setAgentEbpfBlacklistPorts] = useState<string>('23, 3389');
+  const [agentEbpfWhitelistPorts, setAgentEbpfWhitelistPorts] = useState<string>(() => {
+    const list = [sshPort, 80, 443];
+    const p = parseInt(currentPort, 10);
+    if (!isNaN(p) && !list.includes(p)) list.push(p);
+    return list.join(', ');
+  });
+
+  useEffect(() => {
+    if (stats?.ssh_port) {
+      setAgentEbpfWhitelistPorts((prev) => {
+        const ports = prev.split(',').map((s) => parseInt(s.trim(), 10)).filter((p) => !isNaN(p));
+        if (!ports.includes(stats.ssh_port!)) {
+          ports.unshift(stats.ssh_port!);
+          return ports.join(', ');
+        }
+        return prev;
+      });
+    }
+  }, [stats?.ssh_port]);
 
   // Resource Monitor state
   const [agentResourceEnabled, setAgentResourceEnabled] = useState<boolean>(true);
@@ -199,7 +223,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
       config: {
         exporter: {
           enabled: true,
-          endpoint_address: 'ws://127.0.0.1:8080/ws/agent',
+          endpoint_address: `ws://127.0.0.1:${currentPort}/ws/agent`,
           user_id: 'admin',
           config_id: selectedAgentId || 'server-01',
           endpoint_rsa_public_key: settings?.open_defender_key || '',
@@ -213,7 +237,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
           mode: agentSshMode,
           engine: agentSshEngine,
           log_path: agentSshEngine === 'syslog' ? '/var/log/auth.log' : '',
-          unit_name: 'sshd',
+          unit_name: sshServiceName,
           tries: agentSshTries,
           window_seconds: agentSshWindow,
           ban_seconds: agentSshBan,
@@ -242,7 +266,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
         database_monitor: {
           mode: agentDbMode,
           engine: 'journal',
-          log_path: '/var/log/postgresql/postgresql-16-main.log',
+          log_path: '',
           unit_name: 'postgresql',
           tries: 5,
           window_seconds: 300,
@@ -336,7 +360,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
 
 exporter:
   enabled: true
-  endpoint_address: "ws://127.0.0.1:8080/ws/agent" # или /ws/collector
+  endpoint_address: "ws://127.0.0.1:${currentPort}/ws/agent" # или /ws/collector
   user_id: "admin"
   config_id: "server-01"
   endpoint_rsa_public_key: "${settings?.open_defender_key || 'DEFENDER_EYE_RSA_PUBLIC_KEY'}"
@@ -349,7 +373,7 @@ ssh_monitor:
   mode: "blocker"            # варианты: disabled, logger, blocker
   engine: "syslog"           # syslog, journal или docker
   log_path: "/var/log/auth.log"
-  unit_name: "sshd"
+  unit_name: "${sshServiceName}"
   tries: 5
   window_seconds: 300
   ban_seconds: 900
@@ -381,7 +405,7 @@ web_brute_monitor:
 database_monitor:
   mode: "disabled"
   engine: "journal"
-  log_path: "/var/log/postgresql/postgresql-16-main.log"
+  log_path: "/var/log/postgresql/postgresql.log" # при необходимости укажите актуальный путь к логу вашей СУБД
   unit_name: "postgresql"
   tries: 5
   window_seconds: 300
@@ -412,8 +436,8 @@ ebpf_monitors:
     ports_count: 10
     window_seconds: 300
     ban_seconds: 900
-    whitelist_ports: [22, 80, 443]
-    blacklist_ports: []
+    whitelist_ports: [${agentEbpfWhitelistPorts}]
+    blacklist_ports: [${agentEbpfBlacklistPorts}]
 `;
 
   return (
@@ -814,7 +838,7 @@ ebpf_monitors:
               <label className="block text-slate-400 mb-1">Порты-ловушки (Honeypot blacklist_ports):</label>
               <input
                 type="text"
-                placeholder="23, 3389, 8080"
+                placeholder="23, 3389"
                 value={agentEbpfBlacklistPorts}
                 onChange={(e) => setAgentEbpfBlacklistPorts(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-amber-400 font-mono text-xs focus:outline-none focus:border-cyan-500"
@@ -1174,9 +1198,11 @@ ebpf_monitors:
             <span>Безопасный доступ через SSH-туннель (Zero Cloud Exposure)</span>
           </span>
           <button
-            onClick={() =>
-              copyText('ssh -L 8080:127.0.0.1:8080 user@your-server-ip', setCopiedTunnel)
-            }
+            onClick={() => {
+              const sshPortFlag = sshPort !== 22 ? `-p ${sshPort} ` : '';
+              const cmd = `ssh ${sshPortFlag}-L ${currentPort}:127.0.0.1:${currentPort} root@your-server-ip`;
+              copyText(cmd, setCopiedTunnel);
+            }}
             className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-mono"
           >
             {copiedTunnel ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1190,11 +1216,13 @@ ebpf_monitors:
         </p>
 
         <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl font-mono text-xs text-indigo-300 flex items-center justify-between">
-          <span>ssh -L 8080:127.0.0.1:8080 root@your-server-ip</span>
+          <span>
+            ssh {sshPort !== 22 ? `-p ${sshPort} ` : ''}-L {currentPort}:127.0.0.1:{currentPort} root@your-server-ip
+          </span>
         </div>
 
         <p className="text-[11px] text-slate-400 font-sans">
-          После этого откройте браузер по адресу: <code className="text-cyan-400 font-mono">http://localhost:8080</code>
+          После этого откройте браузер по адресу: <code className="text-cyan-400 font-mono">http://localhost:{currentPort}</code>
         </p>
       </div>
     </div>

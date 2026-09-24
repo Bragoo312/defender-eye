@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -616,9 +617,15 @@ func loadOrGenerateKeys(privPath, pubPath string) (*rsa.PrivateKey, *rsa.PublicK
 	pubBytes := x509.MarshalPKCS1PublicKey(&key.PublicKey)
 
 	if privPath != "" {
+		if dir := filepath.Dir(privPath); dir != "" && dir != "." {
+			_ = os.MkdirAll(dir, 0755)
+		}
 		_ = os.WriteFile(privPath, privBytes, 0600)
 	}
 	if pubPath != "" {
+		if dir := filepath.Dir(pubPath); dir != "" && dir != "." {
+			_ = os.MkdirAll(dir, 0755)
+		}
 		_ = os.WriteFile(pubPath, pubBytes, 0644)
 	}
 
