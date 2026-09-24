@@ -26,7 +26,7 @@ import (
 	"github.com/Bragoo312/defender-eye/internal/web"
 )
 
-const AppVersion = "1.3.0"
+const AppVersion = "1.3.1"
 
 type appSink struct {
 	db  *database.DB
