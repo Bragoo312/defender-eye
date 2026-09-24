@@ -8,6 +8,7 @@ import (
 
 	"github.com/Bragoo312/defender-eye/internal/geoip"
 	"github.com/Bragoo312/defender-eye/internal/model"
+	"github.com/Bragoo312/defender-eye/internal/system"
 )
 
 type Normalizer struct {
@@ -71,7 +72,7 @@ func (n *Normalizer) Normalize(in IngestEventInput) model.SecurityEvent {
 		event.EventType = "ssh_brute"
 		event.Service = "ssh"
 		if event.DestPort == 0 {
-			event.DestPort = 22
+			event.DestPort = system.GetSSHPort()
 		}
 		event.Protocol = "tcp"
 		event.Severity = model.SeverityHigh

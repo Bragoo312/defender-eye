@@ -50,6 +50,10 @@ export const SSHTab: React.FC<SSHTabProps> = ({ onSelectEvent, onSelectIp }) => 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const uniqueIps = new Set(events.map((e) => e.source_ip)).size;
   const blockedCount = events.filter((e) => e.action === 'blocked').length;
+  const detectedPorts = Array.from(
+    new Set(events.map((e) => e.dest_port).filter((p): p is number => Boolean(p && p > 0)))
+  );
+  const sshPortDisplay = detectedPorts.length > 0 ? detectedPorts.join(', ') : '22';
 
   return (
     <div className="space-y-6 pb-12 font-sans">
@@ -61,7 +65,7 @@ export const SSHTab: React.FC<SSHTabProps> = ({ onSelectEvent, onSelectIp }) => 
             Что такое SSH Brute-force и почему эти IP здесь фиксируются?
           </div>
           <p className="text-slate-300">
-            Служба SSH (порт 22) используется для управления сервером. В интернете действуют тысячи автоматических ботнетов, которые перебирают простые и словарные пароли к учетным записям <code className="text-rose-400">root</code>, <code className="text-amber-400">admin</code>, <code className="text-amber-400">ubuntu</code>. Defender Eye в реальном времени перехватывает эти попытки и блокирует IP-адрес нападающего до того, как он сможет угадать пароль.
+            Служба SSH (порт {sshPortDisplay}) используется для управления сервером. В интернете действуют тысячи автоматических ботнетов, которые перебирают простые и словарные пароли к учетным записям <code className="text-rose-400">root</code>, <code className="text-amber-400">admin</code>, <code className="text-amber-400">ubuntu</code>. Defender Eye в реальном времени перехватывает эти попытки и блокирует IP-адрес нападающего до того, как он сможет угадать пароль.
           </p>
         </div>
       </div>
@@ -85,7 +89,7 @@ export const SSHTab: React.FC<SSHTabProps> = ({ onSelectEvent, onSelectIp }) => 
           </div>
           <div className="mt-2 text-xs text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800/60 font-mono">
             <span>Атакуемый сервис:</span>
-            <span className="text-cyan-400 font-medium">SSH (порт 22)</span>
+            <span className="text-cyan-400 font-medium">SSH (порт {sshPortDisplay})</span>
           </div>
         </div>
 
@@ -262,7 +266,7 @@ export const SSHTab: React.FC<SSHTabProps> = ({ onSelectEvent, onSelectIp }) => 
                           {human.summary}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
-                          Попытка проникновения через порт 22 (SSH Remote Shell)
+                          Попытка проникновения через порт {ev.dest_port > 0 ? ev.dest_port : sshPortDisplay} (SSH Remote Shell)
                         </div>
                       </td>
 

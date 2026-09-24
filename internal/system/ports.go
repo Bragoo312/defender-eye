@@ -143,6 +143,9 @@ func parseHexIP(hexStr string, proto string) string {
 }
 
 func resolveServiceAndProcess(port int) (service string, process string) {
+	if sshP := GetSSHPort(); sshP > 0 && port == sshP {
+		return "SSH", "sshd"
+	}
 	switch port {
 	case 22:
 		return "SSH", "sshd"
@@ -210,11 +213,14 @@ func auditPortSecurity(port int, proto string, bindAddr string, svc string) (ris
 		}
 		return "safe", "PostgreSQL слушает только локальные соединения."
 
-	case 22: // SSH
+	case 22, GetSSHPort(): // SSH
 		if isPublic {
+			if port != 22 {
+				return "medium", fmt.Sprintf("Служба SSH перенесена на нестандартный порт %d (открыта на 0.0.0.0). Рекомендуется использовать вход только по SSH-ключам и ограничить доступ через брандмауэр.", port)
+			}
 			return "medium", "Порт SSH (22) открыт на всех сетевых интерфейсах. Рекомендуется использовать аутентификацию только по SSH-ключам, сменить порт 22 на нестандартный или ограничить доступ через UFW / Defender Eye."
 		}
-		return "safe", "SSH доступен через ограниченный интерфейс."
+		return "safe", fmt.Sprintf("SSH (порт %d) доступен через ограниченный интерфейс.", port)
 
 	case 80, 443: // HTTP / HTTPS
 		return "safe", "Стандартный веб-порт (HTTP/HTTPS). Убедитесь, что веб-сервер и CMS регулярно обновляются."

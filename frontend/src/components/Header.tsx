@@ -41,7 +41,7 @@ const tabTitles: Record<TabId, { title: string; subtitle: string }> = {
   },
   ssh: {
     title: 'SSH Защита & Brute-force',
-    subtitle: 'Анализ попыток подбора учетных записей и атак на порт 22',
+    subtitle: 'Анализ попыток подбора учетных записей и атак на службу SSH',
   },
   ports: {
     title: 'Сканирование портов и Recon',
