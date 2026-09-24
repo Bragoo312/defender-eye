@@ -164,6 +164,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/geoip/update", s.handleGeoIPUpdate)
 	mux.HandleFunc("/api/v1/opendedefender/agents", s.handleGetAgents)
 	mux.HandleFunc("/api/v1/opendedefender/agents/push", s.handlePushAgentConfig)
+	mux.HandleFunc("/api/v1/opendedefender/link-status", s.handleOpenDefenderLinkStatus)
+	mux.HandleFunc("/api/v1/opendedefender/autolink", s.handleOpenDefenderAutoLink)
+	mux.HandleFunc("/api/v1/opendedefender/sync-local", s.handleOpenDefenderSyncLocal)
 	mux.HandleFunc("/api/v1/patch/ebpf/status", s.handleEbpfPatchStatus)
 	mux.HandleFunc("/api/v1/patch/ebpf/apply", s.handleEbpfPatchApply)
 
@@ -212,7 +215,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
-		"version": "1.3.0",
+		"version": "1.3.2",
 		"time":    time.Now().UTC(),
 		"demo":    demo,
 	})
@@ -850,6 +853,68 @@ func (s *Server) handlePushAgentConfig(w http.ResponseWriter, r *http.Request) {
 		"status":    "ok",
 		"message":   "Конфигурация успешно отправлена на агент по WebSocket",
 		"config_id": req.ConfigID,
+	})
+}
+
+func (s *Server) handleOpenDefenderLinkStatus(w http.ResponseWriter, r *http.Request) {
+	st := opendedefender.CheckLinkStatus(s.cfg, s.openDefServer)
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleOpenDefenderAutoLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	linked, msg, err := opendedefender.AutoLinkOpenDefender(s.cfg, s.openDefServer)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"linked":  linked,
+		"message": msg,
+	})
+}
+
+func (s *Server) handleOpenDefenderSyncLocal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+	var req struct {
+		YAML string `json:"yaml"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.YAML) == "" {
+		http.Error(w, "YAML content is empty", http.StatusBadRequest)
+		return
+	}
+
+	msg, err := opendedefender.ApplyFullConfigLocally(req.YAML)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	if s.openDefServer != nil {
+		s.openDefServer.BroadcastAction("reload_config", "", 0)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"message": msg,
 	})
 }
 

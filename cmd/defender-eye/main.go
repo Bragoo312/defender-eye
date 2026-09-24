@@ -26,7 +26,7 @@ import (
 	"github.com/Bragoo312/defender-eye/internal/web"
 )
 
-const AppVersion = "1.3.1"
+const AppVersion = "1.3.2"
 
 type appSink struct {
 	db  *database.DB
@@ -46,6 +46,7 @@ func main() {
 	configPath := flag.String("config", "", "Path to configuration file")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	demoFlag := flag.Bool("demo", false, "Start with attack simulator enabled")
+	linkFlag := flag.Bool("link-open-defender", false, "Auto-link local Open Defender agent and exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -130,7 +131,51 @@ func main() {
 		}
 	}
 
-	// 7. Background workers: System Metrics & Retention
+	// Fast CLI link mode
+	if *linkFlag {
+		if openDefServer == nil {
+			log.Fatalf("[Main] Open Defender integration is disabled in config")
+		}
+		linked, msg, err := opendedefender.AutoLinkOpenDefender(cfg, openDefServer)
+		if err != nil {
+			log.Fatalf("[Main] Error linking Open Defender: %v", err)
+		}
+		if linked {
+			fmt.Printf("✓ %s\n", msg)
+		} else {
+			fmt.Printf("• %s\n", msg)
+		}
+		return
+	}
+
+	// 7. Auto-link local Open Defender if installed (Zero-Touch Setup)
+	if openDefServer != nil {
+		go func() {
+			// Initial check 2 seconds after startup
+			time.Sleep(2 * time.Second)
+			_, msg, err := opendedefender.AutoLinkOpenDefender(cfg, openDefServer)
+			if err != nil {
+				log.Printf("[OpenDefender] Auto-link check: %v", err)
+			} else if msg != "" {
+				log.Printf("[OpenDefender] %s", msg)
+			}
+
+			// Periodic watcher every 30s in case Open Defender is installed later
+			watcherTicker := time.NewTicker(30 * time.Second)
+			defer watcherTicker.Stop()
+			for range watcherTicker.C {
+				st := opendedefender.CheckLinkStatus(cfg, openDefServer)
+				if st.ConfigFound && (!st.KeyMatched || !st.ExporterReady) {
+					linked, msg, _ := opendedefender.AutoLinkOpenDefender(cfg, openDefServer)
+					if linked {
+						log.Printf("[OpenDefender] Auto-link triggered: %s", msg)
+					}
+				}
+			}
+		}()
+	}
+
+	// 8. Background workers: System Metrics & Retention
 	sysCollector := system.NewCollector()
 	metricsTicker := time.NewTicker(time.Duration(cfg.Metrics.CollectionIntervalSeconds) * time.Second)
 	defer metricsTicker.Stop()

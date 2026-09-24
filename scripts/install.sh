@@ -180,6 +180,13 @@ systemctl daemon-reload
 systemctl enable defender-eye.service
 systemctl restart defender-eye.service
 
+# Auto-link Open Defender if present (Zero-Touch Setup)
+if [ -f /etc/open-defender/config.yaml ]; then
+  echo -e "${CYAN}[Zero-Touch] Обнаружен Open Defender, автоматическая привязка E2EE ключей...${NC}"
+  /usr/local/bin/defender-eye --config /etc/defender-eye/config.yaml --link-open-defender || true
+  chown -R defender-eye:defender-eye /etc/defender-eye /var/lib/defender-eye 2>/dev/null || true
+fi
+
 # Detect SSH port and user for tunnel instructions
 SSH_PORT="22"
 if [ -f /etc/ssh/sshd_config ]; then

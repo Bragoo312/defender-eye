@@ -1,8 +1,8 @@
-# 👁️ Defender Eye v1.3.0
+# 👁️ Defender Eye v1.3.2
 
 <div align="center">
 
-![Defender Eye SOC](https://img.shields.io/badge/Security_SOC-Defender_Eye_v1.3.0-06b6d4?style=for-the-badge&logo=shield)
+![Defender Eye SOC](https://img.shields.io/badge/Security_SOC-Defender_Eye_v1.3.2-06b6d4?style=for-the-badge&logo=shield)
 [![Designed for Open Defender](https://img.shields.io/badge/Designed_for-Open_Defender-7c3aed?style=for-the-badge&logo=shield)](https://github.com/fridalif/open-defender)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)
@@ -11,10 +11,10 @@
 ![VPS Budget](https://img.shields.io/badge/Resource_Footprint-1_CPU_%2F_2_GB_RAM-10b981?style=for-the-badge)
 
 <p align="center">
-  <b>Ультралегкий self-hosted центр мониторинга безопасности сервера (Security SOC Dashboard), аудит открытых портов, eBPF авто-патчер и E2EE WebSocket-коллектор для Open Defender.</b>
+  <b>Ультралегкий self-hosted центр мониторинга безопасности сервера (Security SOC Dashboard), аудит открытых портов, Zero-Touch авто-связка и E2EE WebSocket-коллектор для Open Defender.</b>
 </p>
 
-[Установка](#-быстрый-старт) • [Архитектура](#-архитектура-и-принципы) • [Возможности](#-ключевые-возможности) • [Документация](#-документация) • [SSH-Туннель](#-безопасный-доступ)
+[Установка](#-быстрый-старт) • [Zero-Touch](#-zero-touch-setup) • [Архитектура](#-архитектура-и-принципы) • [Возможности](#-ключевые-возможности) • [Документация](#-документация) • [SSH-Туннель](#-безопасный-доступ)
 
 </div>
 
@@ -73,6 +73,11 @@
 ### 7. ⏱️ Регулируемая частота обновления телеметрии
 В Настройках доступен выбор скорости обновления системных метрик CPU, RAM, Swap, диска и сети (1s, 2s, 3s, 5s, 10s).
 
+### 8. ⚡ Zero-Touch интеграция с Open Defender (NEW v1.3.2)
+* **Полная автоматизация связки:** при установке Defender Eye и Open Defender на одном сервере система автоматически находит `/etc/open-defender/config.yaml`, прописывает RSA-ключ, активирует экспорт телеметрии (`exporter: enabled: true`) и перезапускает службу.
+* **Независимость от порядка установки:** фоновый демон сам обнаружит Open Defender, если тот будет установлен позже.
+* **Синхронизация из UI в 1 клик:** все настройки (SSH, веб-сканеры, СУБД, белый список, eBPF) настраиваются в веб-панели и синхронизируются с конфигом на сервере без необходимости открывать терминал.
+
 ---
 
 ## 🚀 Быстрый старт
@@ -83,12 +88,12 @@
 
 ```bash
 # 1. Скачайте пакет под вашу архитектуру:
-curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.3.0/defender-eye_1.3.0_amd64.deb
+curl -sLO https://github.com/Bragoo312/defender-eye/releases/download/v1.3.2/defender-eye_1.3.2_amd64.deb
 
 # 2. Установите одной командой:
-sudo apt install ./defender-eye_1.3.0_amd64.deb
+sudo apt install ./defender-eye_1.3.2_amd64.deb
 ```
-*Пакет автоматически создаст системного пользователя `defender-eye`, настроит конфигурацию в `/etc/defender-eye/config.yaml` и запустит службу `systemd`.*
+*Пакет автоматически создаст системного пользователя `defender-eye`, настроит конфигурацию в `/etc/defender-eye/config.yaml`, свяжет Open Defender (Zero-Touch) и запустит службу `systemd`.*
 
 ---
 

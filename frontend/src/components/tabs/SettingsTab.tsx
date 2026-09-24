@@ -9,9 +9,13 @@ import {
   pushAgentConfig,
   getEbpfPatchStatus,
   applyEbpfPatch,
+  getOpenDefenderLinkStatus,
+  autoLinkOpenDefender,
+  syncOpenDefenderLocal,
   type GeoIPStatus,
   type AgentInfo,
   type EbpfPatchStatus,
+  type OpenDefenderLinkStatus,
 } from '../../api/client';
 import {
   Settings as SettingsIcon,
@@ -35,6 +39,7 @@ import {
   Wrench,
   CheckCircle2,
   AlertTriangle,
+  Zap,
 } from 'lucide-react';
 
 interface SettingsTabProps {
@@ -124,6 +129,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
   const [patchMsg, setPatchMsg] = useState<string | null>(null);
   const [patchErr, setPatchErr] = useState<string | null>(null);
 
+  // Open Defender Zero-Touch Link State
+  const [linkStatus, setLinkStatus] = useState<OpenDefenderLinkStatus | null>(null);
+  const [checkingLink, setCheckingLink] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [syncingLocal, setSyncingLocal] = useState(false);
+  const [localSyncMsg, setLocalSyncMsg] = useState<string | null>(null);
+  const [localSyncErr, setLocalSyncErr] = useState<string | null>(null);
+
+  const checkLinkStatus = async () => {
+    setCheckingLink(true);
+    try {
+      const res = await getOpenDefenderLinkStatus();
+      setLinkStatus(res);
+    } catch (err) {
+      console.error('Failed to get link status:', err);
+    } finally {
+      setCheckingLink(false);
+    }
+  };
+
   const checkPatchStatus = async () => {
     setCheckingPatch(true);
     setPatchErr(null);
@@ -154,6 +179,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ demoMode, onToggleDemo
 
   useEffect(() => {
     checkPatchStatus();
+    checkLinkStatus();
   }, []);
 
   const applyConfigToForm = (c: any) => {
@@ -439,6 +465,38 @@ ebpf_monitors:
     whitelist_ports: [${agentEbpfWhitelistPorts}]
     blacklist_ports: [${agentEbpfBlacklistPorts}]
 `;
+
+  const handleAutoLink = async () => {
+    setLinking(true);
+    setLocalSyncMsg(null);
+    setLocalSyncErr(null);
+    try {
+      const res = await autoLinkOpenDefender();
+      setLocalSyncMsg(res.message);
+      await checkLinkStatus();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ошибка привязки Open Defender';
+      setLocalSyncErr(msg);
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const handleSyncLocal = async () => {
+    setSyncingLocal(true);
+    setLocalSyncMsg(null);
+    setLocalSyncErr(null);
+    try {
+      const res = await syncOpenDefenderLocal(openDefenderSampleConfig);
+      setLocalSyncMsg(res.message);
+      await checkLinkStatus();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ошибка применения конфигурации на сервере';
+      setLocalSyncErr(msg);
+    } finally {
+      setSyncingLocal(false);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12 max-w-5xl">
@@ -1006,6 +1064,20 @@ ebpf_monitors:
           </div>
         </div>
 
+        {localSyncMsg && (
+          <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2 text-xs">
+            <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{localSyncMsg}</span>
+          </div>
+        )}
+
+        {localSyncErr && (
+          <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 flex items-center gap-2 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{localSyncErr}</span>
+          </div>
+        )}
+
         {pushMsg && (
           <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center gap-2 text-xs">
             <Check className="w-4 h-4 shrink-0 text-emerald-400" />
@@ -1020,24 +1092,45 @@ ebpf_monitors:
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handlePushConfig}
-          disabled={pushingConfig}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {pushingConfig ? (
-            <>
-              <RotateCw className="w-4 h-4 animate-spin" />
-              <span>Шифрование и отправка конфигурации по WebSocket...</span>
-            </>
-          ) : (
-            <>
-              <Send className="w-4 h-4" />
-              <span>Отправить конфигурацию на агент по WebSocket (set_config)</span>
-            </>
-          )}
-        </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={handleSyncLocal}
+            disabled={syncingLocal}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {syncingLocal ? (
+              <>
+                <RotateCw className="w-4 h-4 animate-spin" />
+                <span>Запись в /etc/open-defender/config.yaml...</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4" />
+                <span>Применить к Open Defender на сервере</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePushConfig}
+            disabled={pushingConfig}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {pushingConfig ? (
+              <>
+                <RotateCw className="w-4 h-4 animate-spin" />
+                <span>Шифрование и отправка по WebSocket...</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Отправить по WebSocket (Push)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Panel: Open Defender eBPF Endianness & Binary Auto-Patcher */}
@@ -1164,30 +1257,148 @@ ebpf_monitors:
         </details>
       </div>
 
-      {/* Panel 3: Open Defender E2EE Integration & Config */}
-      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-4">
+      {/* Panel 3: Open Defender Zero-Touch Integration & Config */}
+      <div className="p-5 rounded-2xl bg-[#0f172a]/90 border border-slate-800/80 shadow-lg space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Key className="w-4 h-4 text-cyan-400" />
-            <span>Интеграция с агентом Open Defender (E2EE WebSocket)</span>
-          </span>
-          <button
-            onClick={() => copyText(openDefenderSampleConfig, setCopiedConfig)}
-            className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-mono"
-          >
-            {copiedConfig ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedConfig ? 'Конфиг скопирован' : 'Скопировать config.yaml'}</span>
-          </button>
+            <span className="text-sm font-semibold text-slate-200">
+              Zero-Touch интеграция с Open Defender
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={checkLinkStatus}
+              disabled={checkingLink}
+              className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-mono cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${checkingLink ? 'animate-spin' : ''}`} />
+              <span>{checkingLink ? 'Проверка...' : 'Обновить статус'}</span>
+            </button>
+            <span
+              className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                linkStatus?.connected
+                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80'
+                  : linkStatus?.exporter_ready && linkStatus?.key_matched
+                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80'
+                  : linkStatus?.config_found
+                  ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
+                  : 'bg-slate-900 text-slate-400 border-slate-700'
+              }`}
+            >
+              {linkStatus?.connected
+                ? '🟢 СВЯЗАН И ПОДКЛЮЧЕН'
+                : linkStatus?.exporter_ready && linkStatus?.key_matched
+                ? '🟡 СВЯЗАН (ОЖИДАЕТ ПОДКЛЮЧЕНИЯ)'
+                : linkStatus?.config_found
+                ? '🟠 НАЙДЕН (ТРЕБУЕТСЯ СВЯЗКА)'
+                : '⚪ НЕ УСТАНОВЛЕН ЛОКАЛЬНО'}
+            </span>
+          </div>
         </div>
 
-        <p className="text-xs text-slate-300 font-sans">
-          Разместите следующую конфигурацию в конфигурационном файле вашего агента Open Defender на
-          сервере для безопасной передачи алертов по сквозному шифрованному каналу:
-        </p>
+        {/* Status Details Grid */}
+        <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-xl space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
+              <span className="text-slate-400">Файл конфигурации:</span>
+              <span className={`font-bold flex items-center gap-1.5 ${linkStatus?.config_found ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {linkStatus?.config_found ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                {linkStatus?.config_path || '/etc/open-defender/config.yaml'}
+              </span>
+            </div>
 
-        <pre className="p-3.5 bg-[#080d1a] border border-slate-800 rounded-xl text-xs font-mono text-cyan-300 overflow-x-auto leading-relaxed">
-          {openDefenderSampleConfig}
-        </pre>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
+              <span className="text-slate-400">Экспорт телеметрии (exporter):</span>
+              <span className={`font-bold flex items-center gap-1.5 ${linkStatus?.exporter_ready ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {linkStatus?.exporter_ready ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                {linkStatus?.exporter_ready ? 'Включен (enabled: true)' : 'Отключен'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
+              <span className="text-slate-400">RSA-ключ E2EE:</span>
+              <span className={`font-bold flex items-center gap-1.5 ${linkStatus?.key_matched ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {linkStatus?.key_matched ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                {linkStatus?.key_matched ? 'Связан с Defender Eye' : 'Не привязан'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
+              <span className="text-slate-400">Служба open-defender:</span>
+              <span className={`font-bold flex items-center gap-1.5 ${linkStatus?.service_active ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {linkStatus?.service_active ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                {linkStatus?.service_active ? 'Активна (systemd)' : 'Не запущена'}
+              </span>
+            </div>
+          </div>
+
+          {linkStatus?.message && (
+            <p className="text-[11px] text-slate-400 leading-relaxed font-sans pt-1">
+              {linkStatus.message}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleAutoLink}
+              disabled={linking}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {linking ? (
+                <>
+                  <RotateCw className="w-4 h-4 animate-spin" />
+                  <span>Связывание...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  <span>Авто-привязка ключей (Zero-Touch)</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSyncLocal}
+              disabled={syncingLocal}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.25)] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {syncingLocal ? (
+                <>
+                  <RotateCw className="w-4 h-4 animate-spin" />
+                  <span>Запись и перезапуск службы...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Применить настройки к файлу на сервере</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-300 font-sans">
+              Конфигурационный файл для агента Open Defender на сервере:
+            </p>
+            <button
+              onClick={() => copyText(openDefenderSampleConfig, setCopiedConfig)}
+              className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-mono"
+            >
+              {copiedConfig ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedConfig ? 'Конфиг скопирован' : 'Скопировать config.yaml'}</span>
+            </button>
+          </div>
+
+          <pre className="p-3.5 bg-[#080d1a] border border-slate-800 rounded-xl text-xs font-mono text-cyan-300 overflow-x-auto leading-relaxed">
+            {openDefenderSampleConfig}
+          </pre>
+        </div>
       </div>
 
       {/* Panel 4: SSH Tunnel Access Guide */}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-VERSION="${1:-1.3.1}"
+VERSION="${1:-1.3.2}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$PROJECT_ROOT/dist"
 BUILD_DIR="/tmp/defender-eye-build"
@@ -181,6 +181,13 @@ if [ -d /run/systemd/system ]; then
     else
         systemctl start defender-eye.service >/dev/null 2>&1 || true
     fi
+fi
+
+# Проверка и автолинковка Open Defender (Zero-Touch Setup)
+if [ -f /etc/open-defender/config.yaml ]; then
+    echo "[AutoLink] Обнаружен Open Defender, связываем E2EE ключи..."
+    /usr/local/bin/defender-eye --config /etc/defender-eye/config.yaml --link-open-defender >/dev/null 2>&1 || true
+    chown -R defender-eye:defender-eye /etc/defender-eye /var/lib/defender-eye 2>/dev/null || true
 fi
 
 # Определение SSH порта и пользователя

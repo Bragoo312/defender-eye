@@ -201,6 +201,46 @@ export async function pushAgentConfig(configID: string, configData: any): Promis
   return res.json();
 }
 
+export interface OpenDefenderLinkStatus {
+  config_found: boolean;
+  config_path: string;
+  exporter_ready: boolean;
+  key_matched: boolean;
+  service_active: boolean;
+  connected: boolean;
+  message: string;
+}
+
+export async function getOpenDefenderLinkStatus(): Promise<OpenDefenderLinkStatus> {
+  const res = await fetch(`${BASE_URL}/api/v1/opendedefender/link-status`);
+  if (!res.ok) throw new Error('Failed to fetch Open Defender link status');
+  return res.json();
+}
+
+export async function autoLinkOpenDefender(): Promise<{ status: string; linked: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/opendedefender/autolink`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Не удалось связать Open Defender');
+  }
+  return res.json();
+}
+
+export async function syncOpenDefenderLocal(yaml: string): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/opendedefender/sync-local`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ yaml }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Не удалось применить конфигурацию на сервере');
+  }
+  return res.json();
+}
+
 export async function executeIPAction(
   ip: string,
   action: 'ban' | 'unban' | 'whitelist',

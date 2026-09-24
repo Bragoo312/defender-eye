@@ -84,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Defender<span className="text-cyan-400">Eye</span>
             </span>
             <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 bg-cyan-950/80 text-cyan-400 border border-cyan-800 rounded">
-              v1.3.1
+              v1.3.2
             </span>
           </div>
           <span className="text-xs text-slate-400 font-medium">Security SOC HUD</span>

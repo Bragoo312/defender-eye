@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
@@ -599,9 +600,13 @@ func (sess *session) encryptForAgent(plainText []byte) ([]byte, error) {
 }
 
 func loadOrGenerateKeys(privPath, pubPath string) (*rsa.PrivateKey, *rsa.PublicKey, error) {
-	// If files exist, load them
+	// If files exist, load them (supports both PEM and raw DER)
 	if privData, err := os.ReadFile(privPath); err == nil {
-		key, err := x509.ParsePKCS1PrivateKey(privData)
+		derBytes := privData
+		if block, _ := pem.Decode(privData); block != nil {
+			derBytes = block.Bytes
+		}
+		key, err := x509.ParsePKCS1PrivateKey(derBytes)
 		if err == nil {
 			return key, &key.PublicKey, nil
 		}
@@ -616,17 +621,26 @@ func loadOrGenerateKeys(privPath, pubPath string) (*rsa.PrivateKey, *rsa.PublicK
 	privBytes := x509.MarshalPKCS1PrivateKey(key)
 	pubBytes := x509.MarshalPKCS1PublicKey(&key.PublicKey)
 
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privBytes,
+	})
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: pubBytes,
+	})
+
 	if privPath != "" {
 		if dir := filepath.Dir(privPath); dir != "" && dir != "." {
 			_ = os.MkdirAll(dir, 0755)
 		}
-		_ = os.WriteFile(privPath, privBytes, 0600)
+		_ = os.WriteFile(privPath, privPEM, 0600)
 	}
 	if pubPath != "" {
 		if dir := filepath.Dir(pubPath); dir != "" && dir != "." {
 			_ = os.MkdirAll(dir, 0755)
 		}
-		_ = os.WriteFile(pubPath, pubBytes, 0644)
+		_ = os.WriteFile(pubPath, pubPEM, 0644)
 	}
 
 	return key, &key.PublicKey, nil
